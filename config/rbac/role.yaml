@@ -3,4 +3,61 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: manager-role
-rules: []
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - net.obaydullah.dev
+  resources:
+  - crossservices
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - net.obaydullah.dev
+  resources:
+  - crossservices/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - net.obaydullah.dev
+  resources:
+  - crossservices/status
+  verbs:
+  - get
+  - patch
+  - update

@@ -36,6 +36,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	netv1alpha1 "github.com/obaydullahmhs/cross-cluster-service/api/v1alpha1"
+	"github.com/obaydullahmhs/cross-cluster-service/internal/controller"
+	"github.com/obaydullahmhs/cross-cluster-service/internal/endpoints"
+	"github.com/obaydullahmhs/cross-cluster-service/internal/resolver"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -82,7 +85,28 @@ func main() {
 		Development: true,
 	}
 	opts.BindFlags(flag.CommandLine)
+	var maxEndpointsPerSlice int
+	var credentialsNamespace string
+	var allowInsecureTLS bool
+	var allowExecCredentials bool
+	flag.IntVar(&maxEndpointsPerSlice, "max-endpoints-per-slice", endpoints.DefaultMaxEndpointsPerSlice,
+		"Maximum number of endpoints packed into a single EndpointSlice.")
+	flag.StringVar(&credentialsNamespace, "credentials-namespace", "",
+		"Namespace Secrets are read from. Defaults to the controller's own namespace. "+
+			"Credentials are NEVER read from any other namespace.")
+	flag.BoolVar(&allowInsecureTLS, "allow-insecure-tls", false,
+		"Permit RemoteClusters that set insecureSkipVerify. Off by default.")
+	flag.BoolVar(&allowExecCredentials, "allow-exec-credentials", false,
+		"Permit the ExecPlugin access type, which is arbitrary code execution "+
+			"driven by a cluster-scoped CR. Off by default.")
+
 	flag.Parse()
+
+	// Referenced so the flags are not reported as unused until the milestones
+	// that consume them land.
+	_ = credentialsNamespace
+	_ = allowInsecureTLS
+	_ = allowExecCredentials
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
@@ -177,6 +201,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := (&controller.CrossServiceReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("crossservice"),
+		Resolver: resolver.NewRegistry(map[netv1alpha1.SourceType]resolver.Resolver{
+			netv1alpha1.SourceTypeStatic: &resolver.Static{},
+			netv1alpha1.SourceTypeDNS:    &resolver.DNS{},
+		}),
+		MaxEndpointsPerSlice: maxEndpointsPerSlice,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "CrossService")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
