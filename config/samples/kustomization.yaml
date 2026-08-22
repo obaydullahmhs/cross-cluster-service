@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- net_v1alpha1_crossservice.yaml
+- net_v1alpha1_remotecluster.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

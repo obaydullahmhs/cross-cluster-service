@@ -1,0 +1,966 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: crossservices.net.obaydullah.dev
+spec:
+  group: net.obaydullah.dev
+  names:
+    kind: CrossService
+    listKind: CrossServiceList
+    plural: crossservices
+    shortNames:
+    - xsvc
+    singular: crossservice
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.serviceName
+      name: Service
+      type: string
+    - jsonPath: .status.readyEndpoints
+      name: Ready
+      type: integer
+    - jsonPath: .status.totalEndpoints
+      name: Total
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          CrossService generates a selector-less Service plus managed EndpointSlices
+          whose backends come from outside the local Service selector mechanism.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              CrossServiceSpec declares the ports to expose and where the backends come
+              from. It contains no credentials: those live on the RemoteCluster, which is
+              an ops-team object.
+
+              The port-name rules are enforced in CEL rather than controller-side because
+              CRD validation is both cheaper and visible at kubectl apply time.
+            properties:
+              failurePolicy:
+                description: |-
+                  FailurePolicy governs behaviour while the source is failing. Defaults
+                  apply when unset.
+                properties:
+                  failureThreshold:
+                    default: 3
+                    description: |-
+                      FailureThreshold is how many consecutive resolution failures mark the
+                      source as failing.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  onStale:
+                    default: MarkNotReady
+                    description: OnStale is what to do once StaleThreshold is exceeded.
+                    enum:
+                    - Remove
+                    - MarkNotReady
+                    type: string
+                  staleThreshold:
+                    default: 5m
+                    description: |-
+                      StaleThreshold is how long last-known-good endpoints keep serving after
+                      the source starts failing, before OnStale applies.
+                      Pointer so that an unset field is omitted on the wire and the CRD default
+                      applies. metav1.Duration is a struct, and encoding/json ignores omitempty
+                      on structs, so a non-pointer field is always sent -- as "0s" -- and the
+                      apiserver default never fires for a Go client.
+                    type: string
+                type: object
+              ipFamilyPolicy:
+                default: IPv4
+                description: |-
+                  IPFamilyPolicy selects which address families are written. IPv4 and IPv6
+                  always produce separate EndpointSlices (I3).
+                enum:
+                - IPv4
+                - IPv6
+                - PreferDualStack
+                type: string
+              ports:
+                description: Ports exposed on the generated Service.
+                items:
+                  description: |-
+                    CrossServicePort is one port on the generated Service.
+
+                    Name is the join key between the Service and its EndpointSlices (I2): for a
+                    selector-less Service, kube-proxy matches Service.spec.ports[].name against
+                    EndpointSlice.ports[].name, and Service.spec.ports[].targetPort is ignored
+                    entirely. For a Service source it is also the join key against the REMOTE
+                    Service's port names.
+                  properties:
+                    appProtocol:
+                      description: AppProtocol is a hint copied to both the Service
+                        and the EndpointSlice.
+                      maxLength: 253
+                      type: string
+                    name:
+                      description: |-
+                        Name of the port. Required when more than one port is defined. Must be a
+                        valid IANA_SVC_NAME: at most 15 characters, lowercase alphanumeric and
+                        hyphens, at least one letter, no leading, trailing, or adjacent hyphens.
+                      maxLength: 15
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    port:
+                      description: Port is the port exposed on the Service's ClusterIP.
+                      format: int32
+                      maximum: 65535
+                      minimum: 1
+                      type: integer
+                    protocol:
+                      default: TCP
+                      description: Protocol of the port.
+                      enum:
+                      - TCP
+                      - UDP
+                      - SCTP
+                      type: string
+                    remotePort:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: |-
+                        RemotePort selects which port of the remote Service this maps to, for
+                        Service sources only. Name or number.
+
+                        Defaults to matching Name against the remote Service's port names, which
+                        keeps the join key consistent with I2. Set this only when the local and
+                        remote names differ. A single unnamed port on both sides matches
+                        implicitly.
+                      x-kubernetes-int-or-string: true
+                    targetPort:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: |-
+                        TargetPort is the port on the backend, for Pods, Nodes, DNS and Static
+                        sources. It feeds EndpointSlice.ports[].port -- NOT
+                        Service.spec.ports[].targetPort, which the apiserver ignores for a
+                        selector-less Service (I2). Defaults to Port.
+
+                        The string form names a container port and is only valid for a Pods
+                        source. Be aware that a named port resolving to different numbers across
+                        Pods fragments the endpoints into separate slices, because ports are
+                        per-slice, not per-endpoint (I4).
+
+                        Rejected for Service sources, where the backend port is derived from the
+                        remote Service rather than declared here.
+                      x-kubernetes-int-or-string: true
+                  required:
+                  - port
+                  type: object
+                  x-kubernetes-validations:
+                  - message: 'port name must be a valid IANA_SVC_NAME: at least one
+                      letter, no adjacent hyphens'
+                    rule: '!has(self.name) || (self.name.matches(''[a-z]'') && !self.name.contains(''--''))'
+                  - message: 'targetPort and remotePort are mutually exclusive: targetPort
+                      is for Pods, Nodes, DNS and Static sources, remotePort for Service
+                      sources'
+                    rule: '!(has(self.targetPort) && has(self.remotePort))'
+                maxItems: 64
+                minItems: 1
+                type: array
+              service:
+                description: Service customises the generated Service.
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: Annotations merged onto the generated Service.
+                    type: object
+                  clusterIP:
+                    description: |-
+                      ClusterIP: set to None for a headless Service, which is also the only
+                      configuration in which endpoint hostnames are meaningful.
+                    enum:
+                    - ""
+                    - None
+                    type: string
+                  internalTrafficPolicy:
+                    description: |-
+                      InternalTrafficPolicy on the generated Service. Local is near-useless with
+                      cross-cluster endpoints, since those endpoints carry no local nodeName by
+                      design (I5).
+                    enum:
+                    - Cluster
+                    - Local
+                    type: string
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: Labels merged onto the generated Service.
+                    type: object
+                  name:
+                    description: Name of the generated Service. Defaults to the CrossService
+                      name.
+                    maxLength: 253
+                    type: string
+                  publishNotReadyAddresses:
+                    default: false
+                    description: |-
+                      PublishNotReadyAddresses routes to not-ready endpoints too. Mostly useful
+                      with a headless Service.
+                    type: boolean
+                  sessionAffinity:
+                    description: SessionAffinity on the generated Service.
+                    enum:
+                    - None
+                    - ClientIP
+                    type: string
+                  topologyHints:
+                    default: false
+                    description: |-
+                      TopologyHints emits hints on the generated EndpointSlices. Off by default:
+                      hints derived from a foreign cluster's topology are misleading at best
+                      (I5).
+                    type: boolean
+                type: object
+              source:
+                description: Source is where the backends are resolved from.
+                properties:
+                  clusterRef:
+                    description: |-
+                      ClusterRef selects the RemoteCluster to resolve against. Omit for the
+                      local cluster. Only valid for Service, Pods and Nodes.
+                    properties:
+                      name:
+                        description: Name of the RemoteCluster.
+                        maxLength: 253
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  dns:
+                    description: |-
+                      DNSSource resolves names on an interval or on the record's TTL. This is the
+                      only source that polls by design.
+                    properties:
+                      interval:
+                        default: 30s
+                        description: Interval between re-resolutions.
+                        type: string
+                      maxTTL:
+                        default: 5m
+                        description: MaxTTL clamps a long TTL, so a 24-hour record
+                          does not go unrefreshed.
+                        type: string
+                      minTTL:
+                        default: 5s
+                        description: MinTTL clamps a short TTL, so a 1-second record
+                          cannot drive a hot loop.
+                        type: string
+                      names:
+                        description: |-
+                          Names to resolve. A trailing dot is appended if absent (I10): without it,
+                          ndots:5 in a Pod's resolv.conf costs four NXDOMAIN round-trips per name
+                          per interval, forever.
+                        items:
+                          maxLength: 253
+                          type: string
+                        maxItems: 32
+                        minItems: 1
+                        type: array
+                      nameservers:
+                        description: Nameservers to query as host:port, instead of
+                          the pod's resolv.conf.
+                        items:
+                          maxLength: 253
+                          type: string
+                        maxItems: 8
+                        type: array
+                      recordType:
+                        default: A
+                        description: |-
+                          RecordType queried. Note that the resolved addresses are always written as
+                          IPv4 or IPv6 EndpointSlices; addressType FQDN is never used, because
+                          kube-proxy ignores it (I11).
+                        enum:
+                        - A
+                        - AAAA
+                        - SRV
+                        type: string
+                      srvPortName:
+                        description: |-
+                          SRVPortName names the port in spec.ports that an SRV record's port
+                          populates. Defaults to the single port when only one is defined. Ignored
+                          unless recordType is SRV.
+                        maxLength: 15
+                        type: string
+                      useTTL:
+                        default: false
+                        description: |-
+                          UseTTL requeues on the record's TTL instead of Interval. Requires a
+                          TTL-aware resolver; falls back to Interval otherwise, and says so in the
+                          source status.
+                        type: boolean
+                    required:
+                    - names
+                    type: object
+                  nodes:
+                    description: |-
+                      NodeSource resolves Node addresses for a port on the node itself: a DaemonSet
+                      bound to a hostPort, a node agent, a process outside Kubernetes.
+
+                      For a NodePort Service, use a Service source with via: NodePort instead. This
+                      type is for the case where there is no Service to read, so the port comes
+                      from spec.ports[].targetPort.
+                    properties:
+                      addressType:
+                        default: InternalIP
+                        description: AddressType selects which Node address to use.
+                        enum:
+                        - InternalIP
+                        - ExternalIP
+                        - PreferExternal
+                        - PreferInternal
+                        type: string
+                      excludeUnschedulable:
+                        default: true
+                        description: |-
+                          ExcludeUnschedulable drops Nodes that are cordoned or labelled
+                          node.kubernetes.io/exclude-from-external-load-balancers.
+                        type: boolean
+                      names:
+                        description: Names lists Nodes verbatim.
+                        items:
+                          maxLength: 253
+                          type: string
+                        maxItems: 256
+                        type: array
+                      propagateZone:
+                        default: true
+                        description: PropagateZone copies topology.kubernetes.io/zone
+                          from the Node (I5).
+                        type: boolean
+                      requireReady:
+                        default: true
+                        description: |-
+                          RequireReady emits Nodes whose Ready condition is not True as not-ready
+                          endpoints rather than dropping them silently.
+                        type: boolean
+                      selector:
+                        description: Selector matches Nodes by label.
+                        properties:
+                          matchExpressions:
+                            description: matchExpressions is a list of label selector
+                              requirements. The requirements are ANDed.
+                            items:
+                              description: |-
+                                A label selector requirement is a selector that contains values, a key, and an operator that
+                                relates the key and values.
+                              properties:
+                                key:
+                                  description: key is the label key that the selector
+                                    applies to.
+                                  type: string
+                                operator:
+                                  description: |-
+                                    operator represents a key's relationship to a set of values.
+                                    Valid operators are In, NotIn, Exists and DoesNotExist.
+                                  type: string
+                                values:
+                                  description: |-
+                                    values is an array of string values. If the operator is In or NotIn,
+                                    the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                    the values array must be empty. This array is replaced during a strategic
+                                    merge patch.
+                                  items:
+                                    type: string
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                              required:
+                              - key
+                              - operator
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          matchLabels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                              map is equivalent to an element of matchExpressions, whose key field is "key", the
+                              operator is "In", and the values array contains only "value". The requirements are ANDed.
+                            type: object
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
+                    x-kubernetes-validations:
+                    - message: selector and names are mutually exclusive; omit both
+                        to use every eligible node
+                      rule: '!(has(self.selector) && has(self.names))'
+                  pods:
+                    description: PodSource resolves Pod IPs directly, for Pods with
+                      no Service in front.
+                    properties:
+                      includeTerminating:
+                        default: false
+                        description: |-
+                          IncludeTerminating keeps Pods with a deletionTimestamp as
+                          serving-but-terminating endpoints, for graceful draining.
+                        type: boolean
+                      names:
+                        description: Names lists Pods verbatim. Exactly one of selector
+                          or names.
+                        items:
+                          maxLength: 253
+                          type: string
+                        maxItems: 64
+                        type: array
+                      namespace:
+                        description: |-
+                          Namespace in the source cluster. Required: an empty namespace would mean
+                          every namespace, which is not a grant this API should make implicitly.
+                        maxLength: 253
+                        type: string
+                      propagateZone:
+                        default: true
+                        description: |-
+                          PropagateZone copies topology.kubernetes.io/zone from the Pod's Node onto
+                          the endpoint. Cross-cluster endpoints carry zone rather than nodeName,
+                          which names a node in the local cluster and would break
+                          internalTrafficPolicy: Local (I5). Requires nodes get/list in the source
+                          cluster.
+                        type: boolean
+                      selector:
+                        description: |-
+                          Selector matches Pods by label. Exactly one of selector or names -- there
+                          is deliberately no "all Pods in the namespace" form.
+                        properties:
+                          matchExpressions:
+                            description: matchExpressions is a list of label selector
+                              requirements. The requirements are ANDed.
+                            items:
+                              description: |-
+                                A label selector requirement is a selector that contains values, a key, and an operator that
+                                relates the key and values.
+                              properties:
+                                key:
+                                  description: key is the label key that the selector
+                                    applies to.
+                                  type: string
+                                operator:
+                                  description: |-
+                                    operator represents a key's relationship to a set of values.
+                                    Valid operators are In, NotIn, Exists and DoesNotExist.
+                                  type: string
+                                values:
+                                  description: |-
+                                    values is an array of string values. If the operator is In or NotIn,
+                                    the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                    the values array must be empty. This array is replaced during a strategic
+                                    merge patch.
+                                  items:
+                                    type: string
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                              required:
+                              - key
+                              - operator
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          matchLabels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                              map is equivalent to an element of matchExpressions, whose key field is "key", the
+                              operator is "In", and the values array contains only "value". The requirements are ANDed.
+                            type: object
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    required:
+                    - namespace
+                    type: object
+                    x-kubernetes-validations:
+                    - message: exactly one of selector or names must be set
+                      rule: has(self.selector) != has(self.names)
+                  service:
+                    description: |-
+                      ServiceSource targets a Service in the local or a remote cluster, and derives
+                      both addresses and ports from it.
+
+                      This exists because the interesting numbers are allocated by the cluster that
+                      owns the Service: a nodePort comes from the 30000-32767 range and changes if
+                      the Service is recreated, and a LoadBalancer address is assigned by the cloud
+                      provider. Declaring either by hand means hand-syncing it forever.
+                    properties:
+                      loadBalancer:
+                        description: LoadBalancerExposure configures use of status.loadBalancer.ingress.
+                        properties:
+                          hostnameResolution:
+                            description: |-
+                              HostnameResolution controls re-resolution when the provider returns a
+                              hostname rather than an IP -- AWS ELB and NLB do, GCP does not.
+
+                              kube-proxy ignores addressType FQDN (I11), so a hostname ingress cannot
+                              be written through as-is; it has to be resolved to addresses and kept
+                              fresh on an interval. That makes a hostname LoadBalancer a polling source
+                              despite being watch-driven for the Service object itself.
+                            properties:
+                              interval:
+                                default: 30s
+                                description: Interval between re-resolutions.
+                                type: string
+                              maxTTL:
+                                default: 5m
+                                description: MaxTTL clamps a long TTL, so a 24-hour
+                                  record does not go unrefreshed.
+                                type: string
+                              minTTL:
+                                default: 5s
+                                description: MinTTL clamps a short TTL, so a 1-second
+                                  record cannot drive a hot loop.
+                                type: string
+                              nameservers:
+                                description: Nameservers to query as host:port, instead
+                                  of the pod's resolv.conf.
+                                items:
+                                  maxLength: 253
+                                  type: string
+                                maxItems: 8
+                                type: array
+                              useTTL:
+                                default: false
+                                description: |-
+                                  UseTTL requeues on the record's TTL instead of Interval. Requires a
+                                  TTL-aware resolver; falls back to Interval otherwise, and says so in the
+                                  source status.
+                                type: boolean
+                            type: object
+                        type: object
+                      name:
+                        description: Name of the Service in the source cluster.
+                        maxLength: 253
+                        type: string
+                      namespace:
+                        description: Namespace of the Service in the source cluster.
+                        maxLength: 253
+                        type: string
+                      nodePort:
+                        description: |-
+                          NodePortExposure selects which nodes provide the addresses that are paired
+                          with the remote Service's allocated nodePort. Omit it entirely to use every
+                          eligible node.
+                        properties:
+                          addressType:
+                            default: InternalIP
+                            description: |-
+                              AddressType selects which node address to use. The Prefer variants fall
+                              back to the other kind when the preferred one is absent.
+                            enum:
+                            - InternalIP
+                            - ExternalIP
+                            - PreferExternal
+                            - PreferInternal
+                            type: string
+                          excludeUnschedulable:
+                            default: true
+                            description: |-
+                              ExcludeUnschedulable drops nodes that are cordoned or labelled
+                              node.kubernetes.io/exclude-from-external-load-balancers.
+                            type: boolean
+                          names:
+                            description: Names lists nodes verbatim.
+                            items:
+                              maxLength: 253
+                              type: string
+                            maxItems: 256
+                            type: array
+                          propagateZone:
+                            default: true
+                            description: PropagateZone copies topology.kubernetes.io/zone
+                              from the node (I5).
+                            type: boolean
+                          requireReady:
+                            default: true
+                            description: |-
+                              RequireReady emits nodes whose Ready condition is not True as not-ready
+                              endpoints rather than dropping them silently.
+                            type: boolean
+                          selector:
+                            description: Selector matches nodes by label.
+                            properties:
+                              matchExpressions:
+                                description: matchExpressions is a list of label selector
+                                  requirements. The requirements are ANDed.
+                                items:
+                                  description: |-
+                                    A label selector requirement is a selector that contains values, a key, and an operator that
+                                    relates the key and values.
+                                  properties:
+                                    key:
+                                      description: key is the label key that the selector
+                                        applies to.
+                                      type: string
+                                    operator:
+                                      description: |-
+                                        operator represents a key's relationship to a set of values.
+                                        Valid operators are In, NotIn, Exists and DoesNotExist.
+                                      type: string
+                                    values:
+                                      description: |-
+                                        values is an array of string values. If the operator is In or NotIn,
+                                        the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                        the values array must be empty. This array is replaced during a strategic
+                                        merge patch.
+                                      items:
+                                        type: string
+                                      type: array
+                                      x-kubernetes-list-type: atomic
+                                  required:
+                                  - key
+                                  - operator
+                                  type: object
+                                type: array
+                                x-kubernetes-list-type: atomic
+                              matchLabels:
+                                additionalProperties:
+                                  type: string
+                                description: |-
+                                  matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                  map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                  operator is "In", and the values array contains only "value". The requirements are ANDed.
+                                type: object
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        type: object
+                        x-kubernetes-validations:
+                        - message: selector and names are mutually exclusive; omit
+                            both to use every eligible node
+                          rule: '!(has(self.selector) && has(self.names))'
+                      podIP:
+                        description: |-
+                          PodIPExposure configures reading the remote Service's EndpointSlices.
+
+                          Reading slices rather than re-deriving from Pods is deliberate: the remote
+                          cluster has already computed readiness, resolved every named port per Pod,
+                          and recorded zone. Re-deriving all of that from a duplicated selector would
+                          reproduce I4's named-port fragmentation for no benefit.
+                        properties:
+                          includeTerminating:
+                            default: false
+                            description: |-
+                              IncludeTerminating keeps endpoints that are serving but terminating, for
+                              graceful draining.
+                            type: boolean
+                          propagateZone:
+                            default: true
+                            description: PropagateZone copies the zone recorded on
+                              the remote endpoint (I5).
+                            type: boolean
+                        type: object
+                      via:
+                        description: |-
+                          Via selects how the Service is reached. This determines both the
+                          addresses and the backend ports.
+                        enum:
+                        - NodePort
+                        - LoadBalancer
+                        - PodIP
+                        type: string
+                    required:
+                    - name
+                    - namespace
+                    - via
+                    type: object
+                    x-kubernetes-validations:
+                    - message: nodePort config is only valid when via is NodePort
+                      rule: self.via == 'NodePort' || !has(self.nodePort)
+                    - message: loadBalancer config is only valid when via is LoadBalancer
+                      rule: self.via == 'LoadBalancer' || !has(self.loadBalancer)
+                    - message: podIP config is only valid when via is PodIP
+                      rule: self.via == 'PodIP' || !has(self.podIP)
+                  static:
+                    description: |-
+                      StaticSource is a literal list of addresses. Static endpoints are assumed
+                      ready: this controller does no health checking.
+                    properties:
+                      addresses:
+                        description: |-
+                          Addresses are literal IPv4 or IPv6 addresses. Validated controller-side
+                          with netip.ParseAddr rather than by CEL, because the isIP() CEL extension
+                          is not available on the minimum supported apiserver (1.27).
+                        items:
+                          maxLength: 45
+                          type: string
+                        maxItems: 256
+                        minItems: 1
+                        type: array
+                      zone:
+                        description: Zone applied to every address, for topology-aware
+                          routing.
+                        maxLength: 253
+                        type: string
+                    required:
+                    - addresses
+                    type: object
+                  type:
+                    description: Type selects the backend and which payload field
+                      below is read.
+                    enum:
+                    - Service
+                    - Pods
+                    - Nodes
+                    - DNS
+                    - Static
+                    type: string
+                required:
+                - type
+                type: object
+                x-kubernetes-validations:
+                - message: service config is required if and only if type is Service
+                  rule: 'self.type == ''Service'' ? has(self.service) : !has(self.service)'
+                - message: dns config is required if and only if type is DNS
+                  rule: 'self.type == ''DNS'' ? has(self.dns) : !has(self.dns)'
+                - message: pods config is required if and only if type is Pods
+                  rule: 'self.type == ''Pods'' ? has(self.pods) : !has(self.pods)'
+                - message: nodes config is required if and only if type is Nodes
+                  rule: 'self.type == ''Nodes'' ? has(self.nodes) : !has(self.nodes)'
+                - message: static config is required if and only if type is Static
+                  rule: 'self.type == ''Static'' ? has(self.static) : !has(self.static)'
+                - message: clusterRef is only valid for Service, Pods and Nodes sources
+                  rule: (self.type == 'Service' || self.type == 'Pods' || self.type
+                    == 'Nodes') || !has(self.clusterRef)
+            required:
+            - ports
+            - source
+            type: object
+            x-kubernetes-validations:
+            - message: port name is required when more than one port is defined
+              rule: size(self.ports) == 1 || self.ports.all(p, has(p.name))
+            - message: port names must be unique
+              rule: size(self.ports) == 1 || self.ports.all(p, self.ports.exists_one(q,
+                q.name == p.name))
+            - message: a string targetPort names a container port and is only valid
+                for a Pods source
+              rule: self.source.type == 'Pods' || self.ports.all(p, !has(p.targetPort)
+                || type(p.targetPort) == int)
+            - message: remotePort is only valid for a Service source
+              rule: self.source.type == 'Service' || self.ports.all(p, !has(p.remotePort))
+            - message: 'targetPort is not valid for a Service source: the backend
+                port is derived from the remote Service, so use remotePort to select
+                which one'
+              rule: self.source.type != 'Service' || self.ports.all(p, !has(p.targetPort))
+          status:
+            description: CrossServiceStatus reports what was generated and how healthy
+              it is.
+            properties:
+              clusterIP:
+                description: ClusterIP allocated to the generated Service, or None
+                  if headless.
+                maxLength: 45
+                type: string
+              conditions:
+                description: |-
+                  Conditions are Ready, SourcesResolved, ServiceReady, EndpointsWritten, and
+                  Degraded.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              droppedAddresses:
+                description: |-
+                  DroppedAddresses is how many resolved addresses the AddressPolicy
+                  rejected on the last reconcile. Non-zero deserves a look at the Events.
+                format: int32
+                type: integer
+              endpointSlices:
+                description: EndpointSlices names the slices this CrossService manages.
+                items:
+                  maxLength: 253
+                  type: string
+                maxItems: 128
+                type: array
+              observedGeneration:
+                description: ObservedGeneration is the spec generation this status
+                  reflects.
+                format: int64
+                type: integer
+              readyEndpoints:
+                description: ReadyEndpoints currently written across all slices.
+                format: int32
+                type: integer
+              serviceName:
+                description: ServiceName is the generated Service.
+                maxLength: 253
+                type: string
+              source:
+                description: Source is the detail for this CrossService's single source.
+                properties:
+                  clusterRef:
+                    description: ClusterRef is the RemoteCluster resolved against,
+                      if any.
+                    maxLength: 253
+                    type: string
+                  consecutiveErrors:
+                    description: |-
+                      ConsecutiveErrors since the last success. Compared against
+                      FailurePolicy.FailureThreshold.
+                    format: int32
+                    type: integer
+                  endpoints:
+                    description: Endpoints is the count resolved on the last success.
+                    format: int32
+                    type: integer
+                  lastError:
+                    description: LastError is the most recent resolution error, scrubbed
+                      of credentials.
+                    maxLength: 2048
+                    type: string
+                  lastKnownGood:
+                    description: |-
+                      LastKnownGood carries the endpoints served during a failure window. The
+                      cap bounds status object growth; beyond it, FailurePolicy degrades to
+                      whatever is already written in the EndpointSlices.
+                    items:
+                      description: |-
+                        PersistedEndpoint is one last-known-good endpoint, carried in status so that
+                        a controller restart during a source outage does not black-hole traffic (I9).
+                      properties:
+                        address:
+                          maxLength: 45
+                          type: string
+                        hostname:
+                          description: Hostname is only meaningful for a headless
+                            Service.
+                          maxLength: 253
+                          type: string
+                        ports:
+                          additionalProperties:
+                            format: int32
+                            type: integer
+                          description: |-
+                            Ports maps port name to the resolved backend port. The empty string keys
+                            the single unnamed port (I2).
+                          type: object
+                        ready:
+                          type: boolean
+                        zone:
+                          maxLength: 253
+                          type: string
+                      required:
+                      - address
+                      type: object
+                    maxItems: 512
+                    type: array
+                  lastSuccessTime:
+                    description: LastSuccessTime is the last time resolution succeeded.
+                    format: date-time
+                    type: string
+                  remoteService:
+                    description: |-
+                      RemoteService is the Service that was read, as namespace/name, for
+                      Service sources.
+                    maxLength: 512
+                    type: string
+                  stale:
+                    description: |-
+                      Stale is true once the endpoints being served are last-known-good rather
+                      than freshly resolved.
+                    type: boolean
+                  type:
+                    description: Type of the source, echoed for readability.
+                    type: string
+                  via:
+                    description: Via is the exposure used, echoed for Service sources.
+                    type: string
+                type: object
+              totalEndpoints:
+                description: TotalEndpoints currently written across all slices, ready
+                  or not.
+                format: int32
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

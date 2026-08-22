@@ -1,0 +1,1005 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: remoteclusters.net.obaydullah.dev
+spec:
+  group: net.obaydullah.dev
+  names:
+    kind: RemoteCluster
+    listKind: RemoteClusterList
+    plural: remoteclusters
+    shortNames:
+    - rc
+    singular: remotecluster
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.access.type
+      name: Type
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.kubernetesVersion
+      name: Version
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          RemoteCluster declares how to reach a spoke cluster, and which namespaces may
+          use it. Access to spokes is read-only, always.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: RemoteClusterSpec declares how to reach a spoke cluster,
+              and who may use it.
+            properties:
+              access:
+                description: Access is how the controller authenticates to this cluster.
+                properties:
+                  aks:
+                    description: |-
+                      AKSAccess discovers an AKS endpoint via ARM and authenticates with an Entra
+                      ID token. Not yet implemented; the shape is reserved as for EKSAccess.
+                    properties:
+                      cluster:
+                        maxLength: 63
+                        type: string
+                      credentials:
+                        description: |-
+                          AzureCredentials selects how Entra ID credentials are obtained. Nil means the
+                          ambient chain, which on AKS resolves through Entra Workload Identity or a
+                          managed identity.
+                        properties:
+                          clientID:
+                            maxLength: 64
+                            type: string
+                          clientSecretRef:
+                            description: ClientSecretRef holds a client secret for
+                              an app registration.
+                            properties:
+                              key:
+                                description: Key within the Secret. Defaults are per-field
+                                  and documented on each use.
+                                maxLength: 253
+                                type: string
+                              name:
+                                description: Name of the Secret.
+                                maxLength: 253
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          tenantID:
+                            maxLength: 64
+                            type: string
+                        type: object
+                      resourceGroup:
+                        maxLength: 90
+                        type: string
+                      subscriptionID:
+                        maxLength: 64
+                        type: string
+                    required:
+                    - cluster
+                    - resourceGroup
+                    - subscriptionID
+                    type: object
+                  burst:
+                    default: 30
+                    description: Burst is the client-side burst allowance for this
+                      cluster's client.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  clientCertificate:
+                    description: |-
+                      ClientCertAccess authenticates with an x509 client keypair. Phase 2.
+
+                      SecretName is a whole-Secret reference rather than a SecretKeyRef because a
+                      keypair is two keys; CertKey and KeyKey name them within that Secret.
+                    properties:
+                      caSecretRef:
+                        description: CASecretRef holds the cluster CA. Falls back
+                          to access.tls.caSecretRef.
+                        properties:
+                          key:
+                            description: Key within the Secret. Defaults are per-field
+                              and documented on each use.
+                            maxLength: 253
+                            type: string
+                          name:
+                            description: Name of the Secret.
+                            maxLength: 253
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      certKey:
+                        default: tls.crt
+                        type: string
+                      keyKey:
+                        default: tls.key
+                        type: string
+                      secretName:
+                        description: SecretName is a Secret in the credentials namespace
+                          holding the keypair.
+                        maxLength: 253
+                        type: string
+                      server:
+                        maxLength: 2048
+                        pattern: ^https://
+                        type: string
+                    required:
+                    - secretName
+                    - server
+                    type: object
+                  connectGateway:
+                    description: |-
+                      ConnectGatewayAccess reaches a fleet member through Connect Gateway, which
+                      removes the need for inbound network reachability. Phase 2.
+                    properties:
+                      credentials:
+                        description: |-
+                          GCPCredentials selects how ambient Google credentials are obtained and
+                          optionally escalated.
+                        properties:
+                          impersonateServiceAccount:
+                            description: |-
+                              ImpersonateServiceAccount names a GSA to impersonate after obtaining
+                              ambient credentials.
+                            maxLength: 253
+                            type: string
+                          scopes:
+                            description: |-
+                              Scopes requested for the token. Defaults to
+                              https://www.googleapis.com/auth/cloud-platform.
+                            items:
+                              type: string
+                            maxItems: 16
+                            type: array
+                          serviceAccountKeySecretRef:
+                            description: |-
+                              ServiceAccountKeySecretRef holds a legacy JSON service account key. It
+                              bypasses node pool OAuth scopes entirely, which is why it remains
+                              supported. Default key: key.json.
+                            properties:
+                              key:
+                                description: Key within the Secret. Defaults are per-field
+                                  and documented on each use.
+                                maxLength: 253
+                                type: string
+                              name:
+                                description: Name of the Secret.
+                                maxLength: 253
+                                type: string
+                            required:
+                            - name
+                            type: object
+                        type: object
+                      location:
+                        maxLength: 63
+                        type: string
+                      membership:
+                        description: Membership is the fleet membership name of the
+                          spoke cluster.
+                        maxLength: 63
+                        type: string
+                      project:
+                        maxLength: 63
+                        type: string
+                    required:
+                    - location
+                    - membership
+                    - project
+                    type: object
+                  eks:
+                    description: |-
+                      EKSAccess discovers an EKS endpoint and CA via eks:DescribeCluster and
+                      authenticates with a presigned STS GetCallerIdentity token.
+
+                      Not yet implemented. The shape is reserved so the enum value is stable and a
+                      CR using it fails with AccessTypeNotImplemented rather than an enum
+                      rejection. Note that STS presigned tokens are valid for roughly 15 minutes,
+                      so this path depends on the same TokenSource-not-static-string handling the
+                      Google variants require.
+                    properties:
+                      cluster:
+                        maxLength: 100
+                        type: string
+                      credentials:
+                        description: |-
+                          AWSCredentials selects how AWS credentials are obtained. Nil means the
+                          ambient provider chain, which on EKS resolves through IRSA or the node role.
+                        properties:
+                          accessKeySecretRef:
+                            description: |-
+                              AccessKeySecretRef holds static credentials. Default keys within the
+                              Secret: access_key_id and secret_access_key.
+                            properties:
+                              key:
+                                description: Key within the Secret. Defaults are per-field
+                                  and documented on each use.
+                                maxLength: 253
+                                type: string
+                              name:
+                                description: Name of the Secret.
+                                maxLength: 253
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          assumeRoleARN:
+                            description: |-
+                              AssumeRoleARN is a role to assume after obtaining ambient credentials.
+                              This is the AWS analogue of GCP service account impersonation.
+                            maxLength: 2048
+                            type: string
+                        type: object
+                      region:
+                        maxLength: 63
+                        type: string
+                    required:
+                    - cluster
+                    - region
+                    type: object
+                  execPlugin:
+                    description: |-
+                      ExecPluginAccess shells out to a client-go credential plugin. Phase 3.
+
+                      This is arbitrary code execution driven by a cluster-scoped CR. It is inert
+                      unless the controller runs with --allow-exec-credentials and Command appears
+                      in the configured allowlist.
+                    properties:
+                      apiVersion:
+                        description: APIVersion of the ExecCredential the plugin speaks.
+                        enum:
+                        - client.authentication.k8s.io/v1
+                        - client.authentication.k8s.io/v1beta1
+                        type: string
+                      args:
+                        items:
+                          type: string
+                        maxItems: 64
+                        type: array
+                      caSecretRef:
+                        description: CASecretRef holds the cluster CA. Falls back
+                          to access.tls.caSecretRef.
+                        properties:
+                          key:
+                            description: Key within the Secret. Defaults are per-field
+                              and documented on each use.
+                            maxLength: 253
+                            type: string
+                          name:
+                            description: Name of the Secret.
+                            maxLength: 253
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      command:
+                        description: Command to execute. Must appear in the controller's
+                          allowlist.
+                        maxLength: 1024
+                        type: string
+                      env:
+                        items:
+                          description: |-
+                            ExecEnvVar is a literal environment variable passed to a credential plugin.
+                            Values are literal by design: reading them from Secrets would let a
+                            cluster-scoped CR launder Secret contents into a subprocess argument.
+                          properties:
+                            name:
+                              maxLength: 253
+                              type: string
+                            value:
+                              maxLength: 1024
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        maxItems: 64
+                        type: array
+                      installHint:
+                        description: InstallHint is surfaced in the Ready condition
+                          when Command is missing.
+                        maxLength: 1024
+                        type: string
+                      server:
+                        maxLength: 2048
+                        pattern: ^https://
+                        type: string
+                    required:
+                    - apiVersion
+                    - command
+                    - server
+                    type: object
+                  gke:
+                    description: |-
+                      GKEAccess adds GKE API discovery of the endpoint and CA on top of
+                      GoogleToken. Phase 2.
+                    properties:
+                      cluster:
+                        maxLength: 63
+                        type: string
+                      credentials:
+                        description: |-
+                          GCPCredentials selects how ambient Google credentials are obtained and
+                          optionally escalated.
+                        properties:
+                          impersonateServiceAccount:
+                            description: |-
+                              ImpersonateServiceAccount names a GSA to impersonate after obtaining
+                              ambient credentials.
+                            maxLength: 253
+                            type: string
+                          scopes:
+                            description: |-
+                              Scopes requested for the token. Defaults to
+                              https://www.googleapis.com/auth/cloud-platform.
+                            items:
+                              type: string
+                            maxItems: 16
+                            type: array
+                          serviceAccountKeySecretRef:
+                            description: |-
+                              ServiceAccountKeySecretRef holds a legacy JSON service account key. It
+                              bypasses node pool OAuth scopes entirely, which is why it remains
+                              supported. Default key: key.json.
+                            properties:
+                              key:
+                                description: Key within the Secret. Defaults are per-field
+                                  and documented on each use.
+                                maxLength: 253
+                                type: string
+                              name:
+                                description: Name of the Secret.
+                                maxLength: 253
+                                type: string
+                            required:
+                            - name
+                            type: object
+                        type: object
+                      location:
+                        description: Location is a zone or region.
+                        maxLength: 63
+                        type: string
+                      project:
+                        maxLength: 63
+                        type: string
+                      usePrivateEndpoint:
+                        default: false
+                        description: |-
+                          UsePrivateEndpoint dials the cluster's private endpoint. Requires network
+                          reachability from the controller's cluster.
+                        type: boolean
+                    required:
+                    - cluster
+                    - location
+                    - project
+                    type: object
+                  googleToken:
+                    description: |-
+                      GoogleTokenAccess mints Google OAuth2 access tokens and presents them to an
+                      explicitly configured apiserver.
+
+                      This covers node-SA ADC, service account key files, and impersonation, which
+                      differ only in how ADC resolves -- a library concern, not an API one. Server
+                      and CA are explicit, so this path has no dependency on
+                      container.googleapis.com, roles/container.clusterViewer, or the
+                      cloud-platform node scope for discovery. That is what makes it work with
+                      Workload Identity disabled.
+                    properties:
+                      caSecretRef:
+                        description: |-
+                          CASecretRef holds the cluster CA. Falls back to access.tls.caSecretRef.
+                          Default key: ca.crt.
+                        properties:
+                          key:
+                            description: Key within the Secret. Defaults are per-field
+                              and documented on each use.
+                            maxLength: 253
+                            type: string
+                          name:
+                            description: Name of the Secret.
+                            maxLength: 253
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      credentials:
+                        description: |-
+                          Credentials selects how Google credentials are obtained. Nil means
+                          Application Default Credentials.
+                        properties:
+                          impersonateServiceAccount:
+                            description: |-
+                              ImpersonateServiceAccount names a GSA to impersonate after obtaining
+                              ambient credentials.
+                            maxLength: 253
+                            type: string
+                          scopes:
+                            description: |-
+                              Scopes requested for the token. Defaults to
+                              https://www.googleapis.com/auth/cloud-platform.
+                            items:
+                              type: string
+                            maxItems: 16
+                            type: array
+                          serviceAccountKeySecretRef:
+                            description: |-
+                              ServiceAccountKeySecretRef holds a legacy JSON service account key. It
+                              bypasses node pool OAuth scopes entirely, which is why it remains
+                              supported. Default key: key.json.
+                            properties:
+                              key:
+                                description: Key within the Secret. Defaults are per-field
+                                  and documented on each use.
+                                maxLength: 253
+                                type: string
+                              name:
+                                description: Name of the Secret.
+                                maxLength: 253
+                                type: string
+                            required:
+                            - name
+                            type: object
+                        type: object
+                      server:
+                        description: Server is the apiserver URL.
+                        maxLength: 2048
+                        pattern: ^https://
+                        type: string
+                    required:
+                    - server
+                    type: object
+                  impersonate:
+                    description: |-
+                      Impersonate performs Kubernetes user impersonation on the remote cluster.
+                      This is distinct from GCP service account impersonation.
+                    properties:
+                      extra:
+                        additionalProperties:
+                          items:
+                            type: string
+                          type: array
+                        description: Extra impersonation attributes.
+                        type: object
+                      groups:
+                        description: Groups to impersonate.
+                        items:
+                          type: string
+                        maxItems: 32
+                        type: array
+                      uid:
+                        description: UID to impersonate.
+                        maxLength: 253
+                        type: string
+                      userName:
+                        description: UserName to impersonate on the remote cluster.
+                        maxLength: 253
+                        type: string
+                    required:
+                    - userName
+                    type: object
+                  inCluster:
+                    description: |-
+                      InClusterAccess uses the controller's own ServiceAccount against the local
+                      apiserver. It has no fields by design.
+                    type: object
+                  kubeconfig:
+                    description: KubeconfigAccess reads a full kubeconfig from a Secret.
+                    properties:
+                      context:
+                        description: |-
+                          Context selects a context within the kubeconfig. Defaults to its
+                          current-context.
+                        maxLength: 253
+                        type: string
+                      secretRef:
+                        description: 'SecretRef holds the kubeconfig. Default key:
+                          value, then config.'
+                        properties:
+                          key:
+                            description: Key within the Secret. Defaults are per-field
+                              and documented on each use.
+                            maxLength: 253
+                            type: string
+                          name:
+                            description: Name of the Secret.
+                            maxLength: 253
+                            type: string
+                        required:
+                        - name
+                        type: object
+                    required:
+                    - secretRef
+                    type: object
+                  projectedServiceAccount:
+                    description: |-
+                      ProjectedSAAccess presents the controller's own projected ServiceAccount
+                      token, minted for a spoke-specific audience. It requires the spoke to trust
+                      the hub's OIDC issuer. Phase 3.
+                    properties:
+                      audience:
+                        description: Audience the token is minted for, as configured
+                          on the spoke apiserver.
+                        maxLength: 253
+                        type: string
+                      caSecretRef:
+                        description: CASecretRef holds the cluster CA. Falls back
+                          to access.tls.caSecretRef.
+                        properties:
+                          key:
+                            description: Key within the Secret. Defaults are per-field
+                              and documented on each use.
+                            maxLength: 253
+                            type: string
+                          name:
+                            description: Name of the Secret.
+                            maxLength: 253
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      server:
+                        maxLength: 2048
+                        pattern: ^https://
+                        type: string
+                      tokenPath:
+                        default: /var/run/secrets/tokens/remote
+                        description: TokenPath is where the projected token is mounted
+                          in the controller pod.
+                        maxLength: 1024
+                        type: string
+                    required:
+                    - audience
+                    - server
+                    type: object
+                  proxy:
+                    description: Proxy routes apiserver traffic through an HTTP or
+                      SOCKS5 proxy.
+                    properties:
+                      url:
+                        description: |-
+                          URL of the proxy, e.g. http://proxy.internal:3128 or
+                          socks5://bastion.internal:1080.
+                        maxLength: 2048
+                        pattern: ^(http|https|socks5)://
+                        type: string
+                    required:
+                    - url
+                    type: object
+                  qps:
+                    default: 20
+                    description: QPS is the client-side rate limit for this cluster's
+                      client.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  resyncPeriod:
+                    default: 10m
+                    description: |-
+                      ResyncPeriod is how often this cluster's informers replay their cache, as
+                      a backstop against controller-side drift. Set 0s to disable.
+
+                      This is NOT a polling interval, and lowering it will not make endpoint
+                      updates faster: Pod and Node endpoints are watch-driven, and a resync
+                      replays the existing cache rather than re-listing the remote apiserver,
+                      so it cannot by itself recover an event the watch missed -- watch
+                      bookmarks and relist-on-error handle that. Resyncs are cheap because a
+                      reconcile over unchanged state is required to produce zero writes.
+
+                      Pointer for the same reason as Timeout: encoding/json ignores omitempty
+                      on structs, so a non-pointer metav1.Duration is always sent as "0s" and
+                      the CRD default never fires for a Go client.
+                    type: string
+                  timeout:
+                    default: 30s
+                    description: |-
+                      Timeout for individual requests to the remote apiserver.
+                      Pointer so that an unset field is omitted on the wire and the CRD default
+                      applies. metav1.Duration is a struct, and encoding/json ignores omitempty
+                      on structs, so a non-pointer field is always sent -- as "0s" -- and the
+                      apiserver default never fires for a Go client.
+                    type: string
+                  tls:
+                    description: |-
+                      TLS applies to every access type that dials an apiserver directly. Access
+                      types carrying their own caSecretRef take precedence over this.
+                    properties:
+                      caSecretRef:
+                        description: |-
+                          CASecretRef holds the CA bundle used to verify the remote apiserver.
+                          Default key: ca.crt.
+                        properties:
+                          key:
+                            description: Key within the Secret. Defaults are per-field
+                              and documented on each use.
+                            maxLength: 253
+                            type: string
+                          name:
+                            description: Name of the Secret.
+                            maxLength: 253
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      insecureSkipVerify:
+                        default: false
+                        description: |-
+                          InsecureSkipVerify disables verification of the remote apiserver's
+                          certificate. Rejected unless the controller runs with
+                          --allow-insecure-tls; the CR is failed with a clear condition otherwise.
+                        type: boolean
+                      serverName:
+                        description: |-
+                          ServerName overrides the SNI / certificate hostname. Needed when
+                          connecting to an apiserver by IP.
+                        maxLength: 253
+                        type: string
+                    type: object
+                  token:
+                    description: TokenAccess presents a static bearer token read from
+                      a Secret.
+                    properties:
+                      secretRef:
+                        description: 'SecretRef holds the bearer token. Default key:
+                          token.'
+                        properties:
+                          key:
+                            description: Key within the Secret. Defaults are per-field
+                              and documented on each use.
+                            maxLength: 253
+                            type: string
+                          name:
+                            description: Name of the Secret.
+                            maxLength: 253
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      server:
+                        description: Server is the apiserver URL.
+                        maxLength: 2048
+                        pattern: ^https://
+                        type: string
+                    required:
+                    - secretRef
+                    - server
+                    type: object
+                  type:
+                    description: |-
+                      Type selects the authentication method and which payload field below is
+                      read.
+                    enum:
+                    - InCluster
+                    - Token
+                    - Kubeconfig
+                    - GoogleToken
+                    - WorkloadIdentity
+                    - GKE
+                    - ConnectGateway
+                    - ClientCertificate
+                    - ProjectedServiceAccount
+                    - ExecPlugin
+                    - EKS
+                    - AKS
+                    type: string
+                  workloadIdentity:
+                    description: |-
+                      WorkloadIdentityAccess mints Google tokens through GKE Workload Identity.
+
+                      This is GoogleTokenAccess with the footgun removed: there is deliberately no
+                      service account key field, because mounting a static JSON key in a
+                      WI-enabled cluster defeats the entire point of WI. ADC resolves through the
+                      GKE metadata server to the GSA bound to this pod's KSA and, unlike the
+                      node-SA path, the resulting token is not constrained by node pool OAuth
+                      scopes -- which is the single most common reason the WI-disabled path
+                      returns 401.
+
+                      Functionally this overlaps GoogleToken with nil credentials. It is a
+                      separate type because the narrowing is the point: it states the dependency
+                      on WI explicitly and makes the insecure configuration unrepresentable.
+                    properties:
+                      caSecretRef:
+                        description: |-
+                          CASecretRef holds the cluster CA. Falls back to access.tls.caSecretRef.
+                          Default key: ca.crt.
+                        properties:
+                          key:
+                            description: Key within the Secret. Defaults are per-field
+                              and documented on each use.
+                            maxLength: 253
+                            type: string
+                          name:
+                            description: Name of the Secret.
+                            maxLength: 253
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      impersonateServiceAccount:
+                        description: |-
+                          ImpersonateServiceAccount names a GSA to impersonate after obtaining the
+                          Workload Identity token. This is the supported way to reach a spoke the
+                          bound GSA itself must not be granted access to.
+                        maxLength: 253
+                        type: string
+                      scopes:
+                        description: |-
+                          Scopes requested for the token. Defaults to
+                          https://www.googleapis.com/auth/cloud-platform.
+                        items:
+                          type: string
+                        maxItems: 16
+                        type: array
+                      server:
+                        description: Server is the apiserver URL.
+                        maxLength: 2048
+                        pattern: ^https://
+                        type: string
+                      serviceAccountEmail:
+                        description: |-
+                          ServiceAccountEmail is the GSA this pod is expected to resolve to. When
+                          set, the controller asserts the resolved identity and reports a clear
+                          condition if the KSA-to-GSA binding is wrong, instead of surfacing an
+                          opaque 401 from the spoke.
+                        maxLength: 253
+                        type: string
+                    required:
+                    - server
+                    type: object
+                required:
+                - type
+                type: object
+                x-kubernetes-validations:
+                - message: inCluster config is only valid when type is InCluster
+                  rule: 'self.type == ''InCluster'' ? true : !has(self.inCluster)'
+                - message: token config is required if and only if type is Token
+                  rule: 'self.type == ''Token'' ? has(self.token) : !has(self.token)'
+                - message: kubeconfig config is required if and only if type is Kubeconfig
+                  rule: 'self.type == ''Kubeconfig'' ? has(self.kubeconfig) : !has(self.kubeconfig)'
+                - message: googleToken config is required if and only if type is GoogleToken
+                  rule: 'self.type == ''GoogleToken'' ? has(self.googleToken) : !has(self.googleToken)'
+                - message: gke config is required if and only if type is GKE
+                  rule: 'self.type == ''GKE'' ? has(self.gke) : !has(self.gke)'
+                - message: connectGateway config is required if and only if type is
+                    ConnectGateway
+                  rule: 'self.type == ''ConnectGateway'' ? has(self.connectGateway)
+                    : !has(self.connectGateway)'
+                - message: clientCertificate config is required if and only if type
+                    is ClientCertificate
+                  rule: 'self.type == ''ClientCertificate'' ? has(self.clientCertificate)
+                    : !has(self.clientCertificate)'
+                - message: projectedServiceAccount config is required if and only
+                    if type is ProjectedServiceAccount
+                  rule: 'self.type == ''ProjectedServiceAccount'' ? has(self.projectedServiceAccount)
+                    : !has(self.projectedServiceAccount)'
+                - message: execPlugin config is required if and only if type is ExecPlugin
+                  rule: 'self.type == ''ExecPlugin'' ? has(self.execPlugin) : !has(self.execPlugin)'
+                - message: workloadIdentity config is required if and only if type
+                    is WorkloadIdentity
+                  rule: 'self.type == ''WorkloadIdentity'' ? has(self.workloadIdentity)
+                    : !has(self.workloadIdentity)'
+                - message: eks config is required if and only if type is EKS
+                  rule: 'self.type == ''EKS'' ? has(self.eks) : !has(self.eks)'
+                - message: aks config is required if and only if type is AKS
+                  rule: 'self.type == ''AKS'' ? has(self.aks) : !has(self.aks)'
+              addressPolicy:
+                description: |-
+                  AddressPolicy filters every address resolved from this cluster. It is
+                  applied before the controller-wide default policy.
+                properties:
+                  allowedCIDRs:
+                    description: AllowedCIDRs, when non-empty, restricts endpoints
+                      to these ranges.
+                    items:
+                      type: string
+                    maxItems: 64
+                    type: array
+                  deniedCIDRs:
+                    description: DeniedCIDRs are rejected even when they match AllowedCIDRs.
+                    items:
+                      type: string
+                    maxItems: 64
+                    type: array
+                  denySpecialPurpose:
+                    default: true
+                    description: |-
+                      DenySpecialPurpose blocks loopback, link-local (including the
+                      169.254.169.254 metadata server), unspecified, and multicast addresses.
+                      Defaults true: a namespace tenant who can create a CrossService must not
+                      be able to point a Service at the node's metadata server.
+                    type: boolean
+                type: object
+              allowedNamespaces:
+                description: |-
+                  AllowedNamespaces lists the namespaces permitted to reference this
+                  cluster. Nil or empty means NONE: this fails closed on purpose, because
+                  remote Pod IPs are sensitive and a cluster-scoped CR is not a namespace
+                  owner's to reason about.
+                properties:
+                  matchNames:
+                    description: MatchNames lists namespaces verbatim.
+                    items:
+                      type: string
+                    maxItems: 256
+                    type: array
+                  selector:
+                    description: Selector matches namespaces by label.
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
+              displayName:
+                description: DisplayName is a human-readable label for dashboards
+                  and events.
+                maxLength: 253
+                type: string
+            required:
+            - access
+            type: object
+          status:
+            description: RemoteClusterStatus reports reachability and authentication
+              health.
+            properties:
+              conditions:
+                description: Conditions are Ready, Authenticated, and Reachable.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              consumerCount:
+                description: |-
+                  ConsumerCount is how many CrossServices currently hold a reference on this
+                  cluster's cached client.
+                format: int32
+                type: integer
+              endpoint:
+                description: |-
+                  Endpoint is the apiserver URL actually dialed, after any discovery. It
+                  never contains credentials.
+                maxLength: 2048
+                type: string
+              kubernetesVersion:
+                description: KubernetesVersion reported by the remote apiserver's
+                  /version endpoint.
+                maxLength: 64
+                type: string
+              lastProbeTime:
+                description: LastProbeTime is when the connection was last verified.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the spec generation this status
+                  reflects.
+                format: int64
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

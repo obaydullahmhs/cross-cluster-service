@@ -1,0 +1,154 @@
+# NodePort: the controller reads the remote Service's ALLOCATED nodePort and
+# pairs it with node addresses. Nothing here hardcodes a number from the
+# 30000-32767 range, so recreating the remote Service -- which reallocates it --
+# needs no change on this side.
+#
+# Ports join by name: "http" below matches the port named "http" on the remote
+# Service, the same join-key principle kube-proxy uses between a selector-less
+# Service and its slices.
+apiVersion: net.obaydullah.dev/v1alpha1
+kind: CrossService
+metadata:
+  labels:
+    app.kubernetes.io/name: cross-cluster-service
+    app.kubernetes.io/managed-by: kustomize
+  name: crossservice-sample
+spec:
+  ports:
+    - name: http
+      port: 80
+  source:
+    type: Service
+    clusterRef:
+      name: spoke-a
+    service:
+      namespace: payments
+      name: api
+      via: NodePort
+      nodePort:
+        addressType: PreferExternal
+        selector:
+          matchLabels:
+            node-pool: ingress
+---
+# LoadBalancer. On GCP the ingress carries an IP and this is purely
+# watch-driven. On AWS it carries a HOSTNAME, and since kube-proxy ignores
+# addressType FQDN the controller must resolve it and keep it fresh -- which is
+# what hostnameResolution configures.
+apiVersion: net.obaydullah.dev/v1alpha1
+kind: CrossService
+metadata:
+  name: crossservice-lb-sample
+spec:
+  ports:
+    - name: https
+      port: 443
+      remotePort: tls    # remote Service names this port "tls"
+  source:
+    type: Service
+    clusterRef:
+      name: spoke-a
+    service:
+      namespace: payments
+      name: api-public
+      via: LoadBalancer
+      loadBalancer:
+        hostnameResolution:
+          interval: 60s
+---
+# PodIP reads the remote Service's EndpointSlices rather than re-deriving from
+# Pods, so readiness, per-Pod resolved ports and zone all come across already
+# computed. Requires a flat or peered network between the clusters.
+apiVersion: net.obaydullah.dev/v1alpha1
+kind: CrossService
+metadata:
+  name: crossservice-podip-sample
+spec:
+  ports:
+    - name: grpc
+      port: 9000
+  source:
+    type: Service
+    clusterRef:
+      name: spoke-a
+    service:
+      namespace: payments
+      name: api
+      via: PodIP
+      podIP:
+        includeTerminating: false
+---
+# Nodes: a port on the node itself, with no Service involved -- here a
+# node-exporter DaemonSet on a hostPort. This is what the Nodes source is for;
+# if you are chasing a NodePort Service, use a Service source with via: NodePort
+# so the allocated port is tracked for you.
+apiVersion: net.obaydullah.dev/v1alpha1
+kind: CrossService
+metadata:
+  name: crossservice-hostport-sample
+spec:
+  ports:
+    - port: 9100
+      targetPort: 9100
+  source:
+    type: Nodes
+    clusterRef:
+      name: spoke-a
+    nodes:
+      addressType: InternalIP
+      # selector and names both omitted: every eligible node
+---
+# Pods with no Service in front of them, addressed directly by selector.
+apiVersion: net.obaydullah.dev/v1alpha1
+kind: CrossService
+metadata:
+  name: crossservice-pods-sample
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http    # a container port name; Pods sources only
+  source:
+    type: Pods
+    clusterRef:
+      name: spoke-a
+    pods:
+      namespace: payments
+      selector:
+        matchLabels:
+          app: api
+---
+# DNS. The trailing dot is not cosmetic: without it, ndots:5 in a Pod's
+# resolv.conf costs four NXDOMAIN round-trips per lookup, forever.
+apiVersion: net.obaydullah.dev/v1alpha1
+kind: CrossService
+metadata:
+  name: crossservice-dns-sample
+spec:
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+  source:
+    type: DNS
+    dns:
+      names:
+        - db.prod.example.com.
+      recordType: A
+      interval: 30s
+---
+# Static addresses. Assumed ready: this controller does no health checking.
+apiVersion: net.obaydullah.dev/v1alpha1
+kind: CrossService
+metadata:
+  name: crossservice-static-sample
+spec:
+  ports:
+    - port: 8080
+  source:
+    type: Static
+    static:
+      addresses:
+        - 10.20.30.40
+        - 10.20.30.41
+      zone: us-central1-a

@@ -1,0 +1,115 @@
+# Static bearer token. The Secret lives in the controller's own namespace:
+# SecretKeyRef has no namespace field by design, because a cluster-scoped CR
+# that can name any Secret in any namespace is a credential-exfiltration
+# primitive.
+#
+# allowedNamespaces fails closed. Omitting it means NO namespace may reference
+# this cluster.
+apiVersion: net.obaydullah.dev/v1alpha1
+kind: RemoteCluster
+metadata:
+  labels:
+    app.kubernetes.io/name: cross-cluster-service
+    app.kubernetes.io/managed-by: kustomize
+  name: remotecluster-sample
+spec:
+  displayName: spoke-a (token)
+  access:
+    type: Token
+    token:
+      server: https://34.10.20.30
+      secretRef:
+        name: spoke-a-token
+        key: token
+    tls:
+      caSecretRef:
+        name: spoke-a-ca
+        key: ca.crt
+      serverName: spoke-a.example.com
+  allowedNamespaces:
+    matchNames:
+      - payments
+    selector:
+      matchLabels:
+        crossservice.net.obaydullah.dev/spoke-a: "true"
+  addressPolicy:
+    allowedCIDRs:
+      - 10.0.0.0/8
+    denySpecialPurpose: true
+---
+# The primary GKE-to-GKE path with Workload Identity DISABLED on both clusters.
+#
+# Server and CA are explicit, so this needs no access to
+# container.googleapis.com, no roles/container.clusterViewer, and no
+# cloud-platform node scope for discovery -- only a token the spoke will accept.
+apiVersion: net.obaydullah.dev/v1alpha1
+kind: RemoteCluster
+metadata:
+  name: remotecluster-googletoken-sample
+spec:
+  displayName: spoke-b (node SA ADC)
+  access:
+    type: GoogleToken
+    googleToken:
+      server: https://34.10.20.31
+      caSecretRef:
+        name: spoke-b-ca
+        key: ca.crt
+      credentials:
+        # Omit `credentials` entirely to use Application Default Credentials as
+        # they resolve on the node. Impersonation is the escape hatch when the
+        # node SA itself must not be granted spoke access.
+        impersonateServiceAccount: crossservice-reader@my-project.iam.gserviceaccount.com
+  allowedNamespaces:
+    matchNames:
+      - payments
+---
+# A full kubeconfig, which is the least fussy option when the spoke already
+# hands you one.
+apiVersion: net.obaydullah.dev/v1alpha1
+kind: RemoteCluster
+metadata:
+  name: remotecluster-kubeconfig-sample
+spec:
+  displayName: spoke-c (kubeconfig)
+  access:
+    type: Kubeconfig
+    kubeconfig:
+      secretRef:
+        name: spoke-c-kubeconfig
+        key: value
+      context: spoke-c
+  allowedNamespaces:
+    matchNames:
+      - payments
+---
+# GKE-to-GKE with Workload Identity ENABLED on the hub. This is the preferred
+# GKE path when it is available: no keys to mount or rotate, and the token is
+# not constrained by node pool OAuth scopes -- which is the single most common
+# cause of a 401 on the WI-disabled GoogleToken path.
+#
+# Note there is no `credentials` block here at all. That is deliberate: a static
+# JSON key in a WI-enabled cluster defeats the point of WI, so the type does not
+# offer one.
+apiVersion: net.obaydullah.dev/v1alpha1
+kind: RemoteCluster
+metadata:
+  name: remotecluster-workloadidentity-sample
+spec:
+  displayName: spoke-d (workload identity)
+  access:
+    type: WorkloadIdentity
+    workloadIdentity:
+      server: https://34.10.20.32
+      caSecretRef:
+        name: spoke-d-ca
+        key: ca.crt
+      # Asserted so a wrong KSA-to-GSA binding surfaces as a clear condition
+      # rather than an opaque 401 from the spoke.
+      serviceAccountEmail: crossservice-hub@my-project.iam.gserviceaccount.com
+    # Endpoints are watch-driven; this is only a drift backstop. Lowering it
+    # will not make updates faster.
+    resyncPeriod: 10m
+  allowedNamespaces:
+    matchNames:
+      - payments
