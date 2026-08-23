@@ -254,9 +254,12 @@ func (r *RemoteClusterReconciler) SetupWithManager(mgr ctrl.Manager, credentials
 		Complete(r)
 }
 
-// inNamespace restricts a watch to the credentials namespace. Secrets are only
-// ever read from there (9.1), so watching any other namespace would be both
-// useless and a needless cache of other people's secrets.
+// inNamespace restricts a watch to the credentials namespace.
+//
+// This is belt to the cache's braces. The manager caches Secrets from that one
+// namespace only, which is what keeps the required RBAC to a namespaced Role --
+// a predicate alone would not, because it filters events after they arrive and
+// the informer behind it would still need cluster-scoped list/watch on secrets.
 func inNamespace(ns string) predicate.Predicate {
 	return predicate.NewPredicateFuncs(func(o client.Object) bool {
 		return o.GetNamespace() == ns
