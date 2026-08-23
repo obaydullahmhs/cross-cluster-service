@@ -235,7 +235,7 @@ var _ = Describe("source reference index", func() {
 				name: "a remote source is not indexed locally",
 				src: netv1alpha1.Source{
 					Type:       netv1alpha1.SourceTypePods,
-					ClusterRef: &netv1alpha1.ClusterRef{Name: "spoke-a"},
+					ClusterRef: &netv1alpha1.ClusterRef{Name: "secondary-a"},
 					Pods:       &netv1alpha1.PodSource{Namespace: nsPayments},
 				},
 				want: nil,

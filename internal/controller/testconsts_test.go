@@ -26,8 +26,8 @@ const (
 )
 
 const (
-	nsDefault        = "default"
-	spokeName        = "spoke"
-	spokeReaderRole  = "crossservice-remote-reader"
-	spokeTokenSecret = "spoke-token"
+	nsDefault            = "default"
+	secondaryName        = "secondary"
+	secondaryReaderRole  = "crossservice-remote-reader"
+	secondaryTokenSecret = "secondary-token"
 )

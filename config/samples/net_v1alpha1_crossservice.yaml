@@ -20,7 +20,7 @@ spec:
   source:
     type: Service
     clusterRef:
-      name: spoke-a
+      name: secondary-a
     service:
       namespace: payments
       name: api
@@ -47,7 +47,7 @@ spec:
   source:
     type: Service
     clusterRef:
-      name: spoke-a
+      name: secondary-a
     service:
       namespace: payments
       name: api-public
@@ -70,7 +70,7 @@ spec:
   source:
     type: Service
     clusterRef:
-      name: spoke-a
+      name: secondary-a
     service:
       namespace: payments
       name: api
@@ -93,7 +93,7 @@ spec:
   source:
     type: Nodes
     clusterRef:
-      name: spoke-a
+      name: secondary-a
     nodes:
       addressType: InternalIP
       # selector and names both omitted: every eligible node
@@ -111,7 +111,7 @@ spec:
   source:
     type: Pods
     clusterRef:
-      name: spoke-a
+      name: secondary-a
     pods:
       namespace: payments
       selector:

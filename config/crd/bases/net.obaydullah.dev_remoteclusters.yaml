@@ -33,8 +33,8 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          RemoteCluster declares how to reach a spoke cluster, and which namespaces may
-          use it. Access to spokes is read-only, always.
+          RemoteCluster declares how to reach a secondary cluster, and which namespaces may
+          use it. Access to secondary clusters is read-only, always.
         properties:
           apiVersion:
             description: |-
@@ -54,7 +54,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: RemoteClusterSpec declares how to reach a spoke cluster,
+            description: RemoteClusterSpec declares how to reach a secondary cluster,
               and who may use it.
             properties:
               access:
@@ -205,7 +205,7 @@ spec:
                         type: string
                       membership:
                         description: Membership is the fleet membership name of the
-                          spoke cluster.
+                          secondary cluster.
                         maxLength: 63
                         type: string
                       project:
@@ -542,12 +542,12 @@ spec:
                   projectedServiceAccount:
                     description: |-
                       ProjectedSAAccess presents the controller's own projected ServiceAccount
-                      token, minted for a spoke-specific audience. It requires the spoke to trust
+                      token, minted for a cluster-specific audience. It requires the secondary cluster to trust
                       the hub's OIDC issuer. Phase 3.
                     properties:
                       audience:
                         description: Audience the token is minted for, as configured
-                          on the spoke apiserver.
+                          on the secondary cluster's apiserver.
                         maxLength: 253
                         type: string
                       caSecretRef:
@@ -746,7 +746,7 @@ spec:
                       impersonateServiceAccount:
                         description: |-
                           ImpersonateServiceAccount names a GSA to impersonate after obtaining the
-                          Workload Identity token. This is the supported way to reach a spoke the
+                          Workload Identity token. This is the supported way to reach a secondary cluster the
                           bound GSA itself must not be granted access to.
                         maxLength: 253
                         type: string
@@ -768,7 +768,7 @@ spec:
                           ServiceAccountEmail is the GSA this pod is expected to resolve to. When
                           set, the controller asserts the resolved identity and reports a clear
                           condition if the KSA-to-GSA binding is wrong, instead of surfacing an
-                          opaque 401 from the spoke.
+                          opaque 401 from the secondary cluster.
                         maxLength: 253
                         type: string
                     required:

@@ -141,7 +141,7 @@ func (p *CachingProvider) start(name string, built *auth.Result) (*entry, error)
 
 	go func() {
 		// A failure here is reported through Healthy and the RemoteCluster's
-		// conditions rather than crashing the controller: one unreachable spoke
+		// conditions rather than crashing the controller: one unreachable secondary cluster
 		// must not take down every other CrossService.
 		_ = cl.Start(ctx)
 	}()

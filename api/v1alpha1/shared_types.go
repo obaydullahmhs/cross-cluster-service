@@ -66,7 +66,7 @@ type TLSConfig struct {
 }
 
 // ProxyConfig routes apiserver traffic through an HTTP or SOCKS5 proxy. This is
-// the escape hatch for spoke apiservers that are only reachable from a bastion
+// the escape hatch for secondary cluster apiservers that are only reachable from a bastion
 // network.
 type ProxyConfig struct {
 	// URL of the proxy, e.g. http://proxy.internal:3128 or

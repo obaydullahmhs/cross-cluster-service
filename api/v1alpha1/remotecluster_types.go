@@ -21,7 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// AccessType selects how the controller authenticates to a spoke apiserver.
+// AccessType selects how the controller authenticates to a secondary cluster's apiserver.
 type AccessType string
 
 const (
@@ -46,7 +46,7 @@ const (
 	// AccessTypeClientCertificate uses an x509 client keypair. Phase 2.
 	AccessTypeClientCertificate AccessType = "ClientCertificate"
 	// AccessTypeProjectedServiceAccount presents the controller's projected SA
-	// token with a spoke-specific audience. Phase 3.
+	// token with a cluster-specific audience. Phase 3.
 	AccessTypeProjectedServiceAccount AccessType = "ProjectedServiceAccount"
 	// AccessTypeExecPlugin shells out to a credential plugin. Phase 3, gated by
 	// --allow-exec-credentials plus a command allowlist, because it is arbitrary
@@ -62,7 +62,7 @@ const (
 	AccessTypeAKS AccessType = "AKS"
 )
 
-// RemoteClusterSpec declares how to reach a spoke cluster, and who may use it.
+// RemoteClusterSpec declares how to reach a secondary cluster, and who may use it.
 type RemoteClusterSpec struct {
 	// DisplayName is a human-readable label for dashboards and events.
 	// +optional
@@ -308,13 +308,13 @@ type WorkloadIdentityAccess struct {
 	// ServiceAccountEmail is the GSA this pod is expected to resolve to. When
 	// set, the controller asserts the resolved identity and reports a clear
 	// condition if the KSA-to-GSA binding is wrong, instead of surfacing an
-	// opaque 401 from the spoke.
+	// opaque 401 from the secondary cluster.
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
 	ServiceAccountEmail string `json:"serviceAccountEmail,omitempty"`
 
 	// ImpersonateServiceAccount names a GSA to impersonate after obtaining the
-	// Workload Identity token. This is the supported way to reach a spoke the
+	// Workload Identity token. This is the supported way to reach a secondary cluster the
 	// bound GSA itself must not be granted access to.
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
@@ -364,7 +364,7 @@ type ConnectGatewayAccess struct {
 	// +kubebuilder:validation:MaxLength=63
 	Location string `json:"location"`
 
-	// Membership is the fleet membership name of the spoke cluster.
+	// Membership is the fleet membership name of the secondary cluster.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=63
 	Membership string `json:"membership"`
@@ -402,7 +402,7 @@ type ClientCertAccess struct {
 }
 
 // ProjectedSAAccess presents the controller's own projected ServiceAccount
-// token, minted for a spoke-specific audience. It requires the spoke to trust
+// token, minted for a cluster-specific audience. It requires the secondary cluster to trust
 // the hub's OIDC issuer. Phase 3.
 type ProjectedSAAccess struct {
 	// +kubebuilder:validation:Required
@@ -414,7 +414,7 @@ type ProjectedSAAccess struct {
 	// +optional
 	CASecretRef *SecretKeyRef `json:"caSecretRef,omitempty"`
 
-	// Audience the token is minted for, as configured on the spoke apiserver.
+	// Audience the token is minted for, as configured on the secondary cluster's apiserver.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=253
 	Audience string `json:"audience"`
@@ -520,8 +520,8 @@ type RemoteClusterStatus struct {
 // +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.status.kubernetesVersion`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// RemoteCluster declares how to reach a spoke cluster, and which namespaces may
-// use it. Access to spokes is read-only, always.
+// RemoteCluster declares how to reach a secondary cluster, and which namespaces may
+// use it. Access to secondary clusters is read-only, always.
 type RemoteCluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

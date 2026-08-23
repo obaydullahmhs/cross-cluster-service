@@ -41,7 +41,7 @@ import (
 	"github.com/obaydullahmhs/cross-cluster-service/internal/clusters/auth"
 )
 
-// The spoke apiserver accepts these two tokens. readerToken is bound to a role
+// The secondary cluster apiserver accepts these two tokens. readerToken is bound to a role
 // that can read pods and nodes; strangerToken is authenticated but granted
 // nothing, which is what makes the rotation assertion meaningful.
 const (
@@ -49,38 +49,38 @@ const (
 	strangerToken = "stranger-token-bbbbbbbbbbbbbbbb"
 )
 
-// startSpoke brings up a second apiserver configured for token authentication,
+// startSecondaryCluster brings up a second apiserver configured for token authentication,
 // standing in for a remote cluster.
 //
 // This is the highest-value test in the suite because it exercises the real
 // client path: credentials out of a Secret, a rest.Config built by the auth
 // package, TLS against a CA, and informers over the wire. A fake client would
 // prove none of that.
-func startSpoke() (*envtest.Environment, *rest.Config, client.Client) {
+func startSecondaryCluster() (*envtest.Environment, *rest.Config, client.Client) {
 	GinkgoHelper()
 
-	dir, err := os.MkdirTemp("", "spoke-tokens")
+	dir, err := os.MkdirTemp("", "secondary-tokens")
 	Expect(err).NotTo(HaveOccurred())
 
 	tokenFile := filepath.Join(dir, "tokens.csv")
 	Expect(os.WriteFile(tokenFile, fmt.Appendf(nil,
 		"%s,remote-reader,uid-reader,\n%s,stranger,uid-stranger,\n", readerToken, strangerToken), 0o600)).To(Succeed())
 
-	spoke := &envtest.Environment{}
-	spoke.ControlPlane.GetAPIServer().Configure().Append("token-auth-file", tokenFile)
+	secondary := &envtest.Environment{}
+	secondary.ControlPlane.GetAPIServer().Configure().Append("token-auth-file", tokenFile)
 
-	cfg, err := spoke.Start()
+	cfg, err := secondary.Start()
 	Expect(err).NotTo(HaveOccurred())
 
-	spokeScheme := runtime.NewScheme()
-	Expect(scheme.AddToScheme(spokeScheme)).To(Succeed())
-	c, err := client.New(cfg, client.Options{Scheme: spokeScheme})
+	secondaryScheme := runtime.NewScheme()
+	Expect(scheme.AddToScheme(secondaryScheme)).To(Succeed())
+	c, err := client.New(cfg, client.Options{Scheme: secondaryScheme})
 	Expect(err).NotTo(HaveOccurred())
 
-	// Exactly the grant the docs ask a spoke operator for: read-only, on pods
+	// Exactly the grant the docs ask a secondary cluster operator for: read-only, on pods
 	// and nodes, and nothing else (9.7).
 	Expect(c.Create(ctx, &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{Name: spokeReaderRole},
+		ObjectMeta: metav1.ObjectMeta{Name: secondaryReaderRole},
 		Rules: []rbacv1.PolicyRule{{
 			APIGroups: []string{""},
 			Resources: []string{"pods", "nodes", "services"},
@@ -93,36 +93,36 @@ func startSpoke() (*envtest.Environment, *rest.Config, client.Client) {
 	})).To(Succeed())
 
 	Expect(c.Create(ctx, &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: spokeReaderRole},
+		ObjectMeta: metav1.ObjectMeta{Name: secondaryReaderRole},
 		RoleRef: rbacv1.RoleRef{
-			APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: spokeReaderRole,
+			APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: secondaryReaderRole,
 		},
 		Subjects: []rbacv1.Subject{{Kind: rbacv1.UserKind, Name: "remote-reader"}},
 	})).To(Succeed())
 
-	return spoke, cfg, c
+	return secondary, cfg, c
 }
 
 var _ = Describe("M4: a real remote cluster over the Token path", Ordered, func() {
 	var (
-		spokeEnv    *envtest.Environment
-		spokeCfg    *rest.Config
-		spokeClient client.Client
-		provider    *clusters.CachingProvider
-		builder     *auth.Builder
+		secondaryEnv    *envtest.Environment
+		secondaryCfg    *rest.Config
+		secondaryClient client.Client
+		provider        *clusters.CachingProvider
+		builder         *auth.Builder
 	)
 
 	BeforeAll(func() {
-		spokeEnv, spokeCfg, spokeClient = startSpoke()
+		secondaryEnv, secondaryCfg, secondaryClient = startSecondaryCluster()
 
-		By("storing the spoke's credentials as Secrets in the controller's namespace")
+		By("storing the secondary cluster's credentials as Secrets in the controller's namespace")
 		Expect(k8sClient.Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: spokeTokenSecret, Namespace: credentialsNS},
+			ObjectMeta: metav1.ObjectMeta{Name: secondaryTokenSecret, Namespace: credentialsNS},
 			Data:       map[string][]byte{"token": []byte(readerToken)},
 		})).To(Succeed())
 		Expect(k8sClient.Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: "spoke-ca", Namespace: credentialsNS},
-			Data:       map[string][]byte{"ca.crt": spokeCfg.TLSClientConfig.CAData},
+			ObjectMeta: metav1.ObjectMeta{Name: "secondary-ca", Namespace: credentialsNS},
+			Data:       map[string][]byte{"ca.crt": secondaryCfg.TLSClientConfig.CAData},
 		})).To(Succeed())
 
 		builder = &auth.Builder{
@@ -139,18 +139,18 @@ var _ = Describe("M4: a real remote cluster over the Token path", Ordered, func(
 				return &rc, nil
 			}, nil)
 
-		By("declaring the spoke as a RemoteCluster")
+		By("declaring the secondary cluster as a RemoteCluster")
 		Expect(k8sClient.Create(ctx, &netv1alpha1.RemoteCluster{
-			ObjectMeta: metav1.ObjectMeta{Name: spokeName},
+			ObjectMeta: metav1.ObjectMeta{Name: secondaryName},
 			Spec: netv1alpha1.RemoteClusterSpec{
 				Access: netv1alpha1.ClusterAccess{
 					Type: netv1alpha1.AccessTypeToken,
 					Token: &netv1alpha1.TokenAccess{
-						Server:    spokeCfg.Host,
-						SecretRef: netv1alpha1.SecretKeyRef{Name: spokeTokenSecret, Key: "token"},
+						Server:    secondaryCfg.Host,
+						SecretRef: netv1alpha1.SecretKeyRef{Name: secondaryTokenSecret, Key: "token"},
 					},
 					TLS: &netv1alpha1.TLSConfig{
-						CASecretRef: &netv1alpha1.SecretKeyRef{Name: "spoke-ca", Key: "ca.crt"},
+						CASecretRef: &netv1alpha1.SecretKeyRef{Name: "secondary-ca", Key: "ca.crt"},
 					},
 					// Short so the rotation assertion does not sit through the
 					// 30s default once the new identity starts being refused.
@@ -160,8 +160,8 @@ var _ = Describe("M4: a real remote cluster over the Token path", Ordered, func(
 			},
 		})).To(Succeed())
 
-		By("creating a Pod in the spoke for the resolvers to find")
-		Expect(spokeClient.Create(ctx, &corev1.Pod{
+		By("creating a Pod in the secondary cluster for the resolvers to find")
+		Expect(secondaryClient.Create(ctx, &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "remote-app", Namespace: nsDefault, Labels: map[string]string{labelApp: "remote"},
 			},
@@ -172,24 +172,24 @@ var _ = Describe("M4: a real remote cluster over the Token path", Ordered, func(
 		})).To(Succeed())
 
 		pod := &corev1.Pod{}
-		Expect(spokeClient.Get(ctx, types.NamespacedName{Namespace: nsDefault, Name: "remote-app"}, pod)).To(Succeed())
+		Expect(secondaryClient.Get(ctx, types.NamespacedName{Namespace: nsDefault, Name: "remote-app"}, pod)).To(Succeed())
 		pod.Status = corev1.PodStatus{
 			Phase:      corev1.PodRunning,
 			PodIP:      "10.99.0.1",
 			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
 		}
-		Expect(spokeClient.Status().Update(ctx, pod)).To(Succeed())
+		Expect(secondaryClient.Status().Update(ctx, pod)).To(Succeed())
 	})
 
 	AfterAll(func() {
-		if spokeEnv != nil {
-			Expect(spokeEnv.Stop()).To(Succeed())
+		if secondaryEnv != nil {
+			Expect(secondaryEnv.Stop()).To(Succeed())
 		}
 	})
 
-	It("authenticates and reports the spoke's version", func() {
+	It("authenticates and reports the secondary cluster's version", func() {
 		var rc netv1alpha1.RemoteCluster
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: spokeName}, &rc)).To(Succeed())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: secondaryName}, &rc)).To(Succeed())
 
 		built, err := builder.Build(ctx, &rc)
 		Expect(err).NotTo(HaveOccurred())
@@ -199,8 +199,8 @@ var _ = Describe("M4: a real remote cluster over the Token path", Ordered, func(
 		Expect(version).To(HavePrefix("v1."))
 	})
 
-	It("reads Pods from the spoke through the real client path", func() {
-		cl, err := provider.Get(ctx, spokeName)
+	It("reads Pods from the secondary cluster through the real client path", func() {
+		cl, err := provider.Get(ctx, secondaryName)
 		Expect(err).NotTo(HaveOccurred())
 
 		Eventually(func() ([]corev1.Pod, error) {
@@ -214,14 +214,14 @@ var _ = Describe("M4: a real remote cluster over the Token path", Ordered, func(
 
 	It("picks up a token rotation without a restart", func() {
 		By("confirming the current credentials work")
-		cl, err := provider.Get(ctx, spokeName)
+		cl, err := provider.Get(ctx, secondaryName)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(cl.ListPods(ctx, nsDefault, nil)).NotTo(BeNil())
 
 		By("rotating the Secret to a token with no permissions")
 		var secret corev1.Secret
 		Expect(k8sClient.Get(ctx,
-			types.NamespacedName{Namespace: credentialsNS, Name: spokeTokenSecret}, &secret)).To(Succeed())
+			types.NamespacedName{Namespace: credentialsNS, Name: secondaryTokenSecret}, &secret)).To(Succeed())
 		secret.Data["token"] = []byte(strangerToken)
 		Expect(k8sClient.Update(ctx, &secret)).To(Succeed())
 
@@ -231,7 +231,7 @@ var _ = Describe("M4: a real remote cluster over the Token path", Ordered, func(
 		// silent breakage the fingerprint key exists to prevent.
 		By("observing that the new identity is actually in use")
 		Eventually(func() error {
-			rotated, err := provider.Get(ctx, spokeName)
+			rotated, err := provider.Get(ctx, secondaryName)
 			if err != nil {
 				return err
 			}
@@ -243,7 +243,7 @@ var _ = Describe("M4: a real remote cluster over the Token path", Ordered, func(
 
 	It("refuses a namespace that was never granted access", func() {
 		var rc netv1alpha1.RemoteCluster
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: spokeName}, &rc)).To(Succeed())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: secondaryName}, &rc)).To(Succeed())
 
 		r := &CrossServiceReconciler{Client: k8sClient, Scheme: scheme.Scheme}
 

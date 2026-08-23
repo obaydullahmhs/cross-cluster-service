@@ -296,7 +296,7 @@ func TestPodsRejectsRemoteClusterUntilItIsImplemented(t *testing.T) {
 	_, err := r.Resolve(context.Background(),
 		&netv1alpha1.Source{
 			Type:       netv1alpha1.SourceTypePods,
-			ClusterRef: &netv1alpha1.ClusterRef{Name: "spoke-a"},
+			ClusterRef: &netv1alpha1.ClusterRef{Name: "secondary-a"},
 			Pods:       &netv1alpha1.PodSource{Namespace: nsDefault, Selector: &metav1.LabelSelector{}},
 		}, nil)
 

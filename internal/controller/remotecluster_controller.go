@@ -48,7 +48,7 @@ const SecretRefIndex = "spec.access.secretRefs"
 // ClusterRefIndex indexes CrossServices by the RemoteCluster they bind to.
 const ClusterRefIndex = "spec.source.clusterRef"
 
-// RemoteClusterReconciler validates a spoke's access configuration and reports
+// RemoteClusterReconciler validates a secondary cluster's access configuration and reports
 // whether it is reachable.
 type RemoteClusterReconciler struct {
 	client.Client

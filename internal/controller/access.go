@@ -46,7 +46,7 @@ func (e *accessDeniedError) Error() string {
 //
 // It fails closed: a nil or empty allowedNamespaces permits NOTHING. Remote Pod
 // IPs are sensitive, and a cluster-scoped object is not a namespace owner's to
-// reason about, so an ops team that has not said who may use a spoke has said
+// reason about, so an ops team that has not said who may use a cluster has said
 // nobody.
 func (r *CrossServiceReconciler) checkNamespaceAllowed(
 	ctx context.Context,

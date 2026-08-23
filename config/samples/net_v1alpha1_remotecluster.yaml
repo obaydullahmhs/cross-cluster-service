@@ -13,25 +13,25 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: remotecluster-sample
 spec:
-  displayName: spoke-a (token)
+  displayName: secondary-a (token)
   access:
     type: Token
     token:
       server: https://34.10.20.30
       secretRef:
-        name: spoke-a-token
+        name: secondary-a-token
         key: token
     tls:
       caSecretRef:
-        name: spoke-a-ca
+        name: secondary-a-ca
         key: ca.crt
-      serverName: spoke-a.example.com
+      serverName: secondary-a.example.com
   allowedNamespaces:
     matchNames:
       - payments
     selector:
       matchLabels:
-        crossservice.net.obaydullah.dev/spoke-a: "true"
+        crossservice.net.obaydullah.dev/secondary-a: "true"
   addressPolicy:
     allowedCIDRs:
       - 10.0.0.0/8
@@ -41,44 +41,44 @@ spec:
 #
 # Server and CA are explicit, so this needs no access to
 # container.googleapis.com, no roles/container.clusterViewer, and no
-# cloud-platform node scope for discovery -- only a token the spoke will accept.
+# cloud-platform node scope for discovery -- only a token the secondary cluster will accept.
 apiVersion: net.obaydullah.dev/v1alpha1
 kind: RemoteCluster
 metadata:
   name: remotecluster-googletoken-sample
 spec:
-  displayName: spoke-b (node SA ADC)
+  displayName: secondary-b (node SA ADC)
   access:
     type: GoogleToken
     googleToken:
       server: https://34.10.20.31
       caSecretRef:
-        name: spoke-b-ca
+        name: secondary-b-ca
         key: ca.crt
       credentials:
         # Omit `credentials` entirely to use Application Default Credentials as
         # they resolve on the node. Impersonation is the escape hatch when the
-        # node SA itself must not be granted spoke access.
+        # node SA itself must not be granted secondary cluster access.
         impersonateServiceAccount: crossservice-reader@my-project.iam.gserviceaccount.com
   allowedNamespaces:
     matchNames:
       - payments
 ---
-# A full kubeconfig, which is the least fussy option when the spoke already
+# A full kubeconfig, which is the least fussy option when the secondary cluster already
 # hands you one.
 apiVersion: net.obaydullah.dev/v1alpha1
 kind: RemoteCluster
 metadata:
   name: remotecluster-kubeconfig-sample
 spec:
-  displayName: spoke-c (kubeconfig)
+  displayName: secondary-c (kubeconfig)
   access:
     type: Kubeconfig
     kubeconfig:
       secretRef:
-        name: spoke-c-kubeconfig
+        name: secondary-c-kubeconfig
         key: value
-      context: spoke-c
+      context: secondary-c
   allowedNamespaces:
     matchNames:
       - payments
@@ -96,16 +96,16 @@ kind: RemoteCluster
 metadata:
   name: remotecluster-workloadidentity-sample
 spec:
-  displayName: spoke-d (workload identity)
+  displayName: secondary-d (workload identity)
   access:
     type: WorkloadIdentity
     workloadIdentity:
       server: https://34.10.20.32
       caSecretRef:
-        name: spoke-d-ca
+        name: secondary-d-ca
         key: ca.crt
       # Asserted so a wrong KSA-to-GSA binding surfaces as a clear condition
-      # rather than an opaque 401 from the spoke.
+      # rather than an opaque 401 from the target cluster.
       serviceAccountEmail: crossservice-hub@my-project.iam.gserviceaccount.com
     # Endpoints are watch-driven; this is only a drift backstop. Lowering it
     # will not make updates faster.
