@@ -24,3 +24,10 @@ const (
 	keyNodes   = "nodes|"
 	keySvcAPI  = "service|payments/api"
 )
+
+const (
+	nsDefault        = "default"
+	spokeName        = "spoke"
+	spokeReaderRole  = "crossservice-remote-reader"
+	spokeTokenSecret = "spoke-token"
+)

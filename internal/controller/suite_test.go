@@ -45,6 +45,9 @@ import (
 // Reconcile directly.
 const watchNamespace = "watch-test"
 
+// credentialsNS is the only namespace credentials are ever read from (9.1).
+const credentialsNS = "crossservice-system"
+
 var (
 	cfg       *rest.Config
 	k8sClient client.Client
@@ -82,6 +85,9 @@ var _ = BeforeSuite(func() {
 	By("creating the namespace the managed controller watches")
 	Expect(k8sClient.Create(ctx, &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: watchNamespace},
+	})).To(Succeed())
+	Expect(k8sClient.Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: credentialsNS},
 	})).To(Succeed())
 
 	By("starting a manager with the real controller wired up")

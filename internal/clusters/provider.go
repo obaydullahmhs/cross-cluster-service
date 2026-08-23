@@ -171,3 +171,42 @@ func (l *localClient) ListEndpointSlices(ctx context.Context, namespace, service
 }
 
 func (l *localClient) Healthy() error { return nil }
+
+// RoutingProvider sends unnamed lookups to the local cluster and named ones to
+// the remote cache, so resolvers never branch on whether a source is remote.
+type RoutingProvider struct {
+	Local  Provider
+	Remote Provider
+}
+
+var _ Provider = (*RoutingProvider)(nil)
+
+// NewRoutingProvider builds a router over a local and a remote provider.
+func NewRoutingProvider(local, remote Provider) *RoutingProvider {
+	return &RoutingProvider{Local: local, Remote: remote}
+}
+
+// Get routes by whether a cluster was named.
+func (p *RoutingProvider) Get(ctx context.Context, name string) (Client, error) {
+	if name == "" {
+		return p.Local.Get(ctx, "")
+	}
+	if p.Remote == nil {
+		return nil, &ErrRemoteNotImplemented{Cluster: name}
+	}
+	return p.Remote.Get(ctx, name)
+}
+
+// Release forwards to the remote provider; local clients are never torn down.
+func (p *RoutingProvider) Release(name string, consumer types.NamespacedName) {
+	if p.Remote != nil {
+		p.Remote.Release(name, consumer)
+	}
+}
+
+// Invalidate forwards to the remote provider.
+func (p *RoutingProvider) Invalidate(name string) {
+	if p.Remote != nil {
+		p.Remote.Invalidate(name)
+	}
+}

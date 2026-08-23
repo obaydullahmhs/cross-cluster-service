@@ -47,6 +47,9 @@ linters:
     generated: lax
     rules:
       - linters:
+          - staticcheck
+        text: "SA1019: mgr.GetEventRecorderFor is deprecated"
+      - linters:
           - lll
         path: api/*
       - linters:

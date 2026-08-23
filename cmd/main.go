@@ -27,6 +27,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -38,6 +39,7 @@ import (
 
 	netv1alpha1 "github.com/obaydullahmhs/cross-cluster-service/api/v1alpha1"
 	"github.com/obaydullahmhs/cross-cluster-service/internal/clusters"
+	"github.com/obaydullahmhs/cross-cluster-service/internal/clusters/auth"
 	"github.com/obaydullahmhs/cross-cluster-service/internal/controller"
 	"github.com/obaydullahmhs/cross-cluster-service/internal/endpoints"
 	"github.com/obaydullahmhs/cross-cluster-service/internal/resolver"
@@ -104,11 +106,14 @@ func main() {
 
 	flag.Parse()
 
-	// Referenced so the flags are not reported as unused until the milestones
-	// that consume them land.
-	_ = credentialsNamespace
-	_ = allowInsecureTLS
-	_ = allowExecCredentials
+	if credentialsNamespace == "" {
+		// Default to the controller's own namespace. Credentials are never read
+		// from anywhere else.
+		credentialsNamespace = os.Getenv("POD_NAMESPACE")
+		if credentialsNamespace == "" {
+			credentialsNamespace = "system"
+		}
+	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
@@ -207,8 +212,35 @@ func main() {
 		setupLog.Error(err, "unable to set up field indexes")
 		os.Exit(1)
 	}
+	if err := controller.SetupRemoteClusterIndexes(context.Background(), mgr); err != nil {
+		setupLog.Error(err, "unable to set up remote cluster indexes")
+		os.Exit(1)
+	}
 
 	localClusters := &clusters.LocalProvider{Client: mgr.GetClient()}
+
+	authBuilder := &auth.Builder{
+		Secrets: &auth.Secrets{Client: mgr.GetClient(), Namespace: credentialsNamespace},
+		Options: auth.Options{
+			CredentialsNamespace: credentialsNamespace,
+			AllowInsecureTLS:     allowInsecureTLS,
+			AllowExecCredentials: allowExecCredentials,
+		},
+	}
+
+	remoteClusters := clusters.NewCachingProvider(
+		ctrl.SetupSignalHandler(), authBuilder, mgr.GetScheme(),
+		func(ctx context.Context, name string) (*netv1alpha1.RemoteCluster, error) {
+			var rc netv1alpha1.RemoteCluster
+			if err := mgr.GetClient().Get(ctx, types.NamespacedName{Name: name}, &rc); err != nil {
+				return nil, err
+			}
+			return &rc, nil
+		}, nil)
+
+	// A source resolves against the local cluster or a named remote one; the
+	// resolvers do not care which.
+	sourceProvider := clusters.NewRoutingProvider(localClusters, remoteClusters)
 
 	if err := (&controller.CrossServiceReconciler{
 		Client:   mgr.GetClient(),
@@ -217,13 +249,24 @@ func main() {
 		Resolver: resolver.NewRegistry(map[netv1alpha1.SourceType]resolver.Resolver{
 			netv1alpha1.SourceTypeStatic:  &resolver.Static{},
 			netv1alpha1.SourceTypeDNS:     &resolver.DNS{},
-			netv1alpha1.SourceTypePods:    &resolver.Pods{Provider: localClusters},
-			netv1alpha1.SourceTypeNodes:   &resolver.Nodes{Provider: localClusters},
-			netv1alpha1.SourceTypeService: &resolver.Service{Provider: localClusters},
+			netv1alpha1.SourceTypePods:    &resolver.Pods{Provider: sourceProvider},
+			netv1alpha1.SourceTypeNodes:   &resolver.Nodes{Provider: sourceProvider},
+			netv1alpha1.SourceTypeService: &resolver.Service{Provider: sourceProvider},
 		}),
+		Clusters:             remoteClusters,
 		MaxEndpointsPerSlice: maxEndpointsPerSlice,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CrossService")
+		os.Exit(1)
+	}
+	if err := (&controller.RemoteClusterReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("remotecluster"),
+		Builder:  authBuilder,
+		Provider: remoteClusters,
+	}).SetupWithManager(mgr, credentialsNamespace); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "RemoteCluster")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

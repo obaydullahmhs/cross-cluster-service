@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	netv1alpha1 "github.com/obaydullahmhs/cross-cluster-service/api/v1alpha1"
+	"github.com/obaydullahmhs/cross-cluster-service/internal/clusters"
 	"github.com/obaydullahmhs/cross-cluster-service/internal/endpoints"
 	"github.com/obaydullahmhs/cross-cluster-service/internal/resolver"
 	"github.com/obaydullahmhs/cross-cluster-service/internal/service"
@@ -42,7 +43,11 @@ import (
 // plus managed EndpointSlices.
 type CrossServiceReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
+	Scheme *runtime.Scheme
+
+	// Recorder uses the legacy events API. Migrating to events.EventRecorder
+	// changes the call signature and the test fake, so it is deferred to the
+	// hardening milestone rather than smuggled in here.
 	Recorder record.EventRecorder
 
 	// Resolver dispatches to the per-source-type resolvers. Injected so tests
@@ -54,6 +59,10 @@ type CrossServiceReconciler struct {
 	DefaultAddressPolicy *netv1alpha1.AddressPolicy
 
 	MaxEndpointsPerSlice int
+
+	// Clusters is the ref-counted remote client cache. Nil for a build with
+	// local sources only.
+	Clusters *clusters.CachingProvider
 
 	// Now is injectable so the failure-policy state machine is testable without
 	// sleeping.
@@ -68,6 +77,10 @@ type CrossServiceReconciler struct {
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// Credentials are read from exactly one namespace, so this is a namespaced Role.
+// A ClusterRole over secrets would make any RemoteCluster a credential-exfiltration
+// primitive (9.1).
+// +kubebuilder:rbac:groups="",namespace=system,resources=secrets,verbs=get;list;watch
 
 // Reconcile implements the algorithm in the project brief: validate, resolve,
 // filter, apply the failure policy, write the Service, write the slices, then
@@ -77,8 +90,11 @@ func (r *CrossServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	var xsvc netv1alpha1.CrossService
 	if err := r.Get(ctx, req.NamespacedName, &xsvc); err != nil {
-		// Owner references garbage-collect the Service and slices, so a deleted
-		// CrossService needs no cleanup of its own.
+		if apierrors.IsNotFound(err) && r.Clusters != nil {
+			// Owner references garbage-collect the Service and slices, but the
+			// reference on the shared remote client is ours to drop.
+			r.Clusters.ReleaseAll(req.NamespacedName)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -89,12 +105,25 @@ func (r *CrossServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		// A spec problem will not fix itself on a timer, and requeueing would
 		// just burn the rate limiter until the user edits the object.
 		r.setCondition(status, netv1alpha1.ConditionReady, metav1.ConditionFalse, netv1alpha1.ReasonInvalidSpec, err.Error())
-		r.event(&xsvc, corev1.EventTypeWarning, netv1alpha1.ReasonInvalidSpec, err.Error())
+		r.warn(&xsvc, netv1alpha1.ReasonInvalidSpec, err.Error())
 		return ctrl.Result{}, r.writeStatus(ctx, &xsvc, status)
 	}
 
 	src := &xsvc.Spec.Source
 	prevSource := xsvc.Status.Source
+
+	// A source bound to a RemoteCluster has to clear the ops team's grant
+	// before anything reads from that cluster (9.2).
+	if _, err := r.resolveCluster(ctx, &xsvc); err != nil {
+		reason := reasonForClusterError(err)
+		r.setCondition(status, netv1alpha1.ConditionSourcesResolved, metav1.ConditionFalse, reason, err.Error())
+		r.setCondition(status, netv1alpha1.ConditionReady, metav1.ConditionFalse, reason, err.Error())
+		r.warn(&xsvc, reason, err.Error())
+		return ctrl.Result{}, r.writeStatus(ctx, &xsvc, status)
+	}
+	if r.Clusters != nil && src.ClusterRef != nil {
+		r.Clusters.Acquire(src.ClusterRef.Name, req.NamespacedName)
+	}
 
 	result, resolveErr := r.Resolver.Resolve(ctx, src, xsvc.Spec.Ports)
 
@@ -108,7 +137,7 @@ func (r *CrossServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		// whose named port does not resolve must not fail the whole source (I4).
 		for _, w := range result.Warnings {
 			logger.Info("backend skipped", "reason", w)
-			r.event(&xsvc, corev1.EventTypeWarning, netv1alpha1.ReasonNoEndpointsFound, w)
+			r.warn(&xsvc, netv1alpha1.ReasonNoEndpointsFound, w)
 		}
 	}
 
@@ -124,7 +153,7 @@ func (r *CrossServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		msg := fmt.Sprintf("%d address(es) rejected by address policy, first: %s (%s)",
 			len(rejected), rejected[0].Address, rejected[0].Reason)
 		logger.Info("addresses rejected by policy", "count", len(rejected), "first", rejected[0].Address)
-		r.event(&xsvc, corev1.EventTypeWarning, netv1alpha1.ReasonAddressPolicyRejected, msg)
+		r.warn(&xsvc, netv1alpha1.ReasonAddressPolicyRejected, msg)
 	}
 
 	state := endpoints.ApplyFailurePolicy(xsvc.Spec.FailurePolicy, prevSource, kept, resolveErr, r.now())
@@ -317,9 +346,11 @@ func (r *CrossServiceReconciler) writeStatus(
 	return nil
 }
 
-func (r *CrossServiceReconciler) event(xsvc *netv1alpha1.CrossService, eventType, reason, message string) {
+// warn emits a Warning event. Everything this controller reports through events
+// is a problem worth a human looking at; routine progress belongs in conditions.
+func (r *CrossServiceReconciler) warn(xsvc *netv1alpha1.CrossService, reason, message string) {
 	if r.Recorder != nil {
-		r.Recorder.Event(xsvc, eventType, reason, message)
+		r.Recorder.Event(xsvc, corev1.EventTypeWarning, reason, message)
 	}
 }
 
