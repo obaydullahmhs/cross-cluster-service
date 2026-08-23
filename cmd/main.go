@@ -212,11 +212,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := controller.SetupIndexes(context.Background(), mgr); err != nil {
+	// Established once and shared: the remote client cache's informers must stop
+	// when the manager does, and SetupSignalHandler panics if called twice.
+	signalCtx := ctrl.SetupSignalHandler()
+
+	if err := controller.SetupIndexes(signalCtx, mgr); err != nil {
 		setupLog.Error(err, "unable to set up field indexes")
 		os.Exit(1)
 	}
-	if err := controller.SetupRemoteClusterIndexes(context.Background(), mgr); err != nil {
+	if err := controller.SetupRemoteClusterIndexes(signalCtx, mgr); err != nil {
 		setupLog.Error(err, "unable to set up remote cluster indexes")
 		os.Exit(1)
 	}
@@ -233,7 +237,7 @@ func main() {
 	}
 
 	remoteClusters := clusters.NewCachingProvider(
-		ctrl.SetupSignalHandler(), authBuilder, mgr.GetScheme(),
+		signalCtx, authBuilder, mgr.GetScheme(),
 		func(ctx context.Context, name string) (*netv1alpha1.RemoteCluster, error) {
 			var rc netv1alpha1.RemoteCluster
 			if err := mgr.GetClient().Get(ctx, types.NamespacedName{Name: name}, &rc); err != nil {
@@ -285,7 +289,7 @@ func main() {
 	}
 
 	setupLog.Info("Starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(signalCtx); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
