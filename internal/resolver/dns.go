@@ -95,6 +95,60 @@ func FQDN(name string) string {
 	return name + "."
 }
 
+// scopeFilter drops resolved addresses by routability scope.
+//
+// It is applied at the DNS layer rather than in the address policy because it
+// is a property of the record, not of the cluster: the same address that must
+// be excluded from a split-horizon name is perfectly valid arriving from a
+// Static or Service source, so a controller-wide CIDR policy is the wrong
+// instrument.
+type scopeFilter struct {
+	exclude AddressScope // "" filters nothing
+}
+
+// scopeAll is a filter sentinel, not a classification: ScopeOf never returns
+// it, and nothing may be compared against it as though it were a scope.
+const scopeAll AddressScope = "Private and Public"
+
+func newScopeFilter(cfg *netv1alpha1.DNSSource) scopeFilter {
+	switch {
+	// Both true is rejected by CRD validation. Should a CRD predating that rule
+	// still be stored, excluding everything is the honest reading, and an empty
+	// EndpointSlice is far easier to diagnose than a silently ignored field.
+	case cfg.ExcludePrivateIPs && cfg.ExcludePublicIPs:
+		return scopeFilter{exclude: scopeAll}
+	case cfg.ExcludePrivateIPs:
+		return scopeFilter{exclude: ScopePrivate}
+	case cfg.ExcludePublicIPs:
+		return scopeFilter{exclude: ScopePublic}
+	}
+	return scopeFilter{}
+}
+
+func (f scopeFilter) active() bool { return f.exclude != "" }
+
+// apply returns the surviving addresses and how many were dropped.
+func (f scopeFilter) apply(addrs []netip.Addr) ([]netip.Addr, int) {
+	if !f.active() {
+		return addrs, 0
+	}
+	kept := make([]netip.Addr, 0, len(addrs))
+	for _, a := range addrs {
+		if f.exclude == scopeAll || ScopeOf(a) == f.exclude {
+			continue
+		}
+		kept = append(kept, a)
+	}
+	return kept, len(addrs) - len(kept)
+}
+
+// warn describes a drop for the CrossService's events and status. An address
+// removed on purpose still has to be visible: "half my backends vanished" is
+// otherwise indistinguishable from a resolver returning less than it used to.
+func (f scopeFilter) warn(name string, dropped, total int) string {
+	return fmt.Sprintf("dns: %d of %d address(es) for %s excluded as %s", dropped, total, name, f.exclude)
+}
+
 // Resolve implements Resolver.
 func (d *DNS) Resolve(ctx context.Context, src *netv1alpha1.Source, ports []netv1alpha1.CrossServicePort) (*Result, error) {
 	if src.DNS == nil {
@@ -125,8 +179,10 @@ func (d *DNS) resolveAddr(
 	}
 
 	portMap := defaultPortMap(ports)
+	filter := newScopeFilter(cfg)
 	var out []Endpoint
 	var errs []error
+	var warnings []string
 
 	for _, name := range cfg.Names {
 		addrs, err := client.LookupNetIP(ctx, network, FQDN(name))
@@ -134,6 +190,13 @@ func (d *DNS) resolveAddr(
 			errs = append(errs, fmt.Errorf("resolving %s: %w", name, err))
 			continue
 		}
+
+		total := len(addrs)
+		addrs, dropped := filter.apply(addrs)
+		if dropped > 0 {
+			warnings = append(warnings, filter.warn(name, dropped, total))
+		}
+
 		for _, a := range addrs {
 			out = append(out, Endpoint{
 				Address: a.Unmap(),
@@ -149,7 +212,7 @@ func (d *DNS) resolveAddr(
 	if len(errs) > 0 {
 		return nil, joinErrors(errs)
 	}
-	return &Result{Endpoints: out}, nil
+	return &Result{Endpoints: out, Warnings: warnings}, nil
 }
 
 func (d *DNS) resolveSRV(
@@ -167,8 +230,10 @@ func (d *DNS) resolveSRV(
 	}
 
 	base := defaultPortMap(ports)
+	filter := newScopeFilter(cfg)
 	var out []Endpoint
 	var errs []error
+	var warnings []string
 
 	for _, name := range cfg.Names {
 		fqdn := FQDN(name)
@@ -183,6 +248,15 @@ func (d *DNS) resolveSRV(
 			if err != nil {
 				errs = append(errs, fmt.Errorf("resolving SRV target %s: %w", srv.Target, err))
 				continue
+			}
+
+			// Filtered on the target's addresses, not the SRV record itself: an
+			// SRV record carries a name and a port, and the routability that is
+			// being selected for belongs to whatever that name resolves to.
+			total := len(addrs)
+			addrs, dropped := filter.apply(addrs)
+			if dropped > 0 {
+				warnings = append(warnings, filter.warn(srv.Target, dropped, total))
 			}
 
 			// Copied per target: each SRV record carries its own port, so the
@@ -207,7 +281,7 @@ func (d *DNS) resolveSRV(
 	if len(errs) > 0 {
 		return nil, joinErrors(errs)
 	}
-	return &Result{Endpoints: out}, nil
+	return &Result{Endpoints: out, Warnings: warnings}, nil
 }
 
 func joinErrors(errs []error) error {

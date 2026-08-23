@@ -265,6 +265,32 @@ spec:
                       DNSSource resolves names on an interval or on the record's TTL. This is the
                       only source that polls by design.
                     properties:
+                      excludePrivateIPs:
+                        default: false
+                        description: |-
+                          ExcludePrivateIPs drops privately-routable answers, keeping only publicly
+                          routable ones.
+
+                          This exists for split-horizon DNS, where one name answers with both an
+                          internal and an external address depending on who asks -- and where a
+                          resolver that can see both would otherwise write a mix of the two into a
+                          single EndpointSlice, making roughly half of all connections take a path
+                          the caller cannot reach. Which half is unreachable depends on where the
+                          consuming cluster sits, so the choice has to be declared, not guessed.
+
+                          See AddressScope for exactly which ranges count as private; notably
+                          100.64.0.0/10 does, because CNIs allocate from it and it is not routable
+                          on the internet.
+                        type: boolean
+                      excludePublicIPs:
+                        default: false
+                        description: |-
+                          ExcludePublicIPs drops publicly-routable answers, keeping only privately
+                          routable ones. The counterpart to ExcludePrivateIPs, and the one to reach
+                          for when peered/VPN connectivity exists and traffic must not leave it.
+
+                          Setting both is rejected: it would exclude every address.
+                        type: boolean
                       interval:
                         default: 30s
                         description: Interval between re-resolutions.
@@ -326,6 +352,11 @@ spec:
                     required:
                     - names
                     type: object
+                    x-kubernetes-validations:
+                    - message: excludePrivateIPs and excludePublicIPs cannot both
+                        be true; that would exclude every address
+                      rule: '!(has(self.excludePrivateIPs) && self.excludePrivateIPs
+                        && has(self.excludePublicIPs) && self.excludePublicIPs)'
                   nodes:
                     description: |-
                       NodeSource resolves Node addresses for a port on the node itself: a DaemonSet

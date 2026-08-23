@@ -136,6 +136,10 @@ spec:
         - db.prod.example.com.
       recordType: A
       interval: 30s
+      # Split-horizon: this name answers with an internal and an external
+      # address depending on who asks. Keep only the one this cluster can
+      # actually reach, or roughly half of all connections take a dead path.
+      excludePublicIPs: true
 ---
 # Static addresses. Assumed ready: this controller does no health checking.
 apiVersion: net.obaydullah.dev/v1alpha1

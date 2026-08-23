@@ -177,6 +177,40 @@ The trailing dot is not cosmetic. Without it, `ndots:5` in a Pod's
 `resolv.conf` costs four NXDOMAIN round trips per lookup, per interval,
 forever. The controller appends it if you forget, but write it anyway.
 
+### Split-horizon names
+
+If a name answers with both an internal and an external address -- the usual
+shape for a managed database reachable over peering and over the internet --
+say which one you want:
+
+```yaml
+    dns:
+      names: ["db.prod.example.com."]
+      recordType: A
+      excludePublicIPs: true     # keep only privately routable answers
+      # excludePrivateIPs: true  # ...or only publicly routable ones
+```
+
+Without this, both addresses land in the same EndpointSlice and roughly half of
+all connections take a path this cluster cannot reach. Which half is
+unreachable depends on where the cluster sits, so the controller cannot guess
+it -- you have to say.
+
+Setting both is rejected by CRD validation: it would exclude every address.
+
+Private means anything not routable on the public internet: RFC1918, ULA,
+loopback, link-local, **and `100.64.0.0/10`** -- GKE and EKS allocate from that
+range, so treating it as public would be wrong in exactly the environments this
+controller is for.
+
+Every excluded address is reported as an event on the CrossService. A backend
+that disappears on purpose still has to be visible, or it is indistinguishable
+from a record that quietly shrank:
+
+```
+Warning  NoEndpointsFound  dns: 1 of 2 address(es) for db.prod.example.com. excluded as Public
+```
+
 ---
 
 ## 6. Rehearse the remote path without a second cluster

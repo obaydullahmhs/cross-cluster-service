@@ -69,6 +69,9 @@ func intOrNum(i int32) *intstr.IntOrString {
 	return &v
 }
 
+// fqdnDB is the name every DNS spec resolves; qualified, as the docs insist.
+const fqdnDB = "db.example.com."
+
 var _ = Describe("CrossService CRD validation", func() {
 	It("accepts a minimal single-unnamed-port Static source", func() {
 		Expect(k8sClient.Create(ctx, newCrossService())).To(Succeed())
@@ -175,7 +178,7 @@ var _ = Describe("CrossService CRD validation", func() {
 			xsvc.Spec.Source = netv1alpha1.Source{
 				Type:       netv1alpha1.SourceTypeDNS,
 				ClusterRef: &netv1alpha1.ClusterRef{Name: "secondary"},
-				DNS:        &netv1alpha1.DNSSource{Names: []string{"db.example.com."}},
+				DNS:        &netv1alpha1.DNSSource{Names: []string{fqdnDB}},
 			}
 			err := k8sClient.Create(ctx, xsvc)
 			Expect(err).To(HaveOccurred())
@@ -347,7 +350,7 @@ var _ = Describe("CrossService CRD validation", func() {
 			xsvc := newCrossService()
 			xsvc.Spec.Source = netv1alpha1.Source{
 				Type: netv1alpha1.SourceTypeDNS,
-				DNS:  &netv1alpha1.DNSSource{Names: []string{"db.example.com."}},
+				DNS:  &netv1alpha1.DNSSource{Names: []string{fqdnDB}},
 			}
 			Expect(k8sClient.Create(ctx, xsvc)).To(Succeed())
 
@@ -357,6 +360,36 @@ var _ = Describe("CrossService CRD validation", func() {
 			Expect(dns.MinTTL.Duration.String()).To(Equal("5s"))
 			Expect(dns.MaxTTL.Duration.String()).To(Equal("5m0s"))
 			Expect(dns.UseTTL).To(BeFalse())
+			Expect(dns.ExcludePrivateIPs).To(BeFalse())
+			Expect(dns.ExcludePublicIPs).To(BeFalse())
+		})
+
+		It("accepts either scope exclusion on its own", func() {
+			for _, excludePrivate := range []bool{true, false} {
+				xsvc := newCrossService()
+				xsvc.Spec.Source = netv1alpha1.Source{
+					Type: netv1alpha1.SourceTypeDNS,
+					DNS: &netv1alpha1.DNSSource{
+						Names:             []string{fqdnDB},
+						ExcludePrivateIPs: excludePrivate,
+						ExcludePublicIPs:  !excludePrivate,
+					},
+				}
+				Expect(k8sClient.Create(ctx, xsvc)).To(Succeed())
+			}
+		})
+
+		It("rejects excluding both scopes, which would exclude every address", func() {
+			xsvc := newCrossService()
+			xsvc.Spec.Source = netv1alpha1.Source{
+				Type: netv1alpha1.SourceTypeDNS,
+				DNS: &netv1alpha1.DNSSource{
+					Names:             []string{fqdnDB},
+					ExcludePrivateIPs: true,
+					ExcludePublicIPs:  true,
+				},
+			}
+			Expect(k8sClient.Create(ctx, xsvc)).NotTo(Succeed())
 		})
 	})
 

@@ -425,6 +425,7 @@ type NodeSource struct {
 
 // DNSSource resolves names on an interval or on the record's TTL. This is the
 // only source that polls by design.
+// +kubebuilder:validation:XValidation:rule="!(has(self.excludePrivateIPs) && self.excludePrivateIPs && has(self.excludePublicIPs) && self.excludePublicIPs)",message="excludePrivateIPs and excludePublicIPs cannot both be true; that would exclude every address"
 type DNSSource struct {
 	// Names to resolve. A trailing dot is appended if absent (I10): without it,
 	// ndots:5 in a Pod's resolv.conf costs four NXDOMAIN round-trips per name
@@ -449,6 +450,32 @@ type DNSSource struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=15
 	SRVPortName string `json:"srvPortName,omitempty"`
+
+	// ExcludePrivateIPs drops privately-routable answers, keeping only publicly
+	// routable ones.
+	//
+	// This exists for split-horizon DNS, where one name answers with both an
+	// internal and an external address depending on who asks -- and where a
+	// resolver that can see both would otherwise write a mix of the two into a
+	// single EndpointSlice, making roughly half of all connections take a path
+	// the caller cannot reach. Which half is unreachable depends on where the
+	// consuming cluster sits, so the choice has to be declared, not guessed.
+	//
+	// See AddressScope for exactly which ranges count as private; notably
+	// 100.64.0.0/10 does, because CNIs allocate from it and it is not routable
+	// on the internet.
+	// +kubebuilder:default=false
+	// +optional
+	ExcludePrivateIPs bool `json:"excludePrivateIPs,omitempty"`
+
+	// ExcludePublicIPs drops publicly-routable answers, keeping only privately
+	// routable ones. The counterpart to ExcludePrivateIPs, and the one to reach
+	// for when peered/VPN connectivity exists and traffic must not leave it.
+	//
+	// Setting both is rejected: it would exclude every address.
+	// +kubebuilder:default=false
+	// +optional
+	ExcludePublicIPs bool `json:"excludePublicIPs,omitempty"`
 
 	// DNSResolution is inlined so the timing knobs read as dns.interval rather
 	// than dns.resolution.interval, while staying the same type a hostname
