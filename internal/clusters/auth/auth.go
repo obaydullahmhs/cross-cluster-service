@@ -114,6 +114,12 @@ func (b *Builder) Build(ctx context.Context, rc *netv1alpha1.RemoteCluster) (*Re
 		cfg, err = b.buildGoogleToken(ctx, access, fp)
 	case netv1alpha1.AccessTypeWorkloadIdentity:
 		cfg, err = b.buildWorkloadIdentity(ctx, access, fp)
+	case netv1alpha1.AccessTypeClientCertificate:
+		cfg, err = b.buildClientCertificate(ctx, access, fp)
+	case netv1alpha1.AccessTypeGKE:
+		cfg, err = b.buildGKE(ctx, access, fp)
+	case netv1alpha1.AccessTypeAKS:
+		cfg, err = b.buildAKS(ctx, access, fp)
 	default:
 		return nil, &ErrAccessTypeNotImplemented{Type: access.Type}
 	}

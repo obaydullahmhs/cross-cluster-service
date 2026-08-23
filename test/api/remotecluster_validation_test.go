@@ -28,8 +28,9 @@ import (
 )
 
 const (
-	spokeServer    = "https://spoke.example.com"
-	spokeTokenName = "spoke-token"
+	secondaryServer    = "https://secondary.example.com"
+	secondaryTokenName = "secondary-token"
+	keyCACert          = "ca.crt"
 )
 
 var rcCounter int
@@ -76,11 +77,11 @@ var _ = Describe("RemoteCluster CRD validation", func() {
 			rc := newRemoteCluster(netv1alpha1.ClusterAccess{
 				Type: netv1alpha1.AccessTypeToken,
 				Token: &netv1alpha1.TokenAccess{
-					Server:    spokeServer,
-					SecretRef: netv1alpha1.SecretKeyRef{Name: spokeTokenName},
+					Server:    secondaryServer,
+					SecretRef: netv1alpha1.SecretKeyRef{Name: secondaryTokenName},
 				},
 				Kubeconfig: &netv1alpha1.KubeconfigAccess{
-					SecretRef: netv1alpha1.SecretKeyRef{Name: "spoke-kubeconfig"},
+					SecretRef: netv1alpha1.SecretKeyRef{Name: "secondary-kubeconfig"},
 				},
 			})
 			err := k8sClient.Create(ctx, rc)
@@ -92,8 +93,8 @@ var _ = Describe("RemoteCluster CRD validation", func() {
 			rc := newRemoteCluster(netv1alpha1.ClusterAccess{
 				Type: netv1alpha1.AccessTypeToken,
 				Token: &netv1alpha1.TokenAccess{
-					Server:    spokeServer,
-					SecretRef: netv1alpha1.SecretKeyRef{Name: spokeTokenName, Key: "token"},
+					Server:    secondaryServer,
+					SecretRef: netv1alpha1.SecretKeyRef{Name: secondaryTokenName, Key: "token"},
 				},
 			})
 			Expect(k8sClient.Create(ctx, rc)).To(Succeed())
@@ -104,12 +105,12 @@ var _ = Describe("RemoteCluster CRD validation", func() {
 				Type: netv1alpha1.AccessTypeGoogleToken,
 				GoogleToken: &netv1alpha1.GoogleTokenAccess{
 					Server:      "https://34.1.2.3",
-					CASecretRef: &netv1alpha1.SecretKeyRef{Name: "spoke-ca", Key: "ca.crt"},
+					CASecretRef: &netv1alpha1.SecretKeyRef{Name: "secondary-ca", Key: keyCACert},
 					Credentials: &netv1alpha1.GCPCredentials{
 						ImpersonateServiceAccount: "reader@proj.iam.gserviceaccount.com",
 					},
 				},
-				TLS: &netv1alpha1.TLSConfig{ServerName: "spoke.example.com"},
+				TLS: &netv1alpha1.TLSConfig{ServerName: "secondary.example.com"},
 			})
 			Expect(k8sClient.Create(ctx, rc)).To(Succeed())
 		})
@@ -119,8 +120,8 @@ var _ = Describe("RemoteCluster CRD validation", func() {
 		rc := newRemoteCluster(netv1alpha1.ClusterAccess{
 			Type: netv1alpha1.AccessTypeToken,
 			Token: &netv1alpha1.TokenAccess{
-				Server:    "http://spoke.example.com",
-				SecretRef: netv1alpha1.SecretKeyRef{Name: spokeTokenName},
+				Server:    "http://secondary.example.com",
+				SecretRef: netv1alpha1.SecretKeyRef{Name: secondaryTokenName},
 			},
 		})
 		Expect(k8sClient.Create(ctx, rc)).To(HaveOccurred())
@@ -133,8 +134,8 @@ var _ = Describe("RemoteCluster CRD validation", func() {
 		rc := newRemoteCluster(netv1alpha1.ClusterAccess{
 			Type: netv1alpha1.AccessTypeToken,
 			Token: &netv1alpha1.TokenAccess{
-				Server:    spokeServer,
-				SecretRef: netv1alpha1.SecretKeyRef{Name: spokeTokenName},
+				Server:    secondaryServer,
+				SecretRef: netv1alpha1.SecretKeyRef{Name: secondaryTokenName},
 			},
 		})
 		Expect(k8sClient.Create(ctx, rc)).To(Succeed())
@@ -200,8 +201,8 @@ var _ = Describe("RemoteCluster CRD validation", func() {
 			rc := newRemoteCluster(netv1alpha1.ClusterAccess{
 				Type: netv1alpha1.AccessTypeWorkloadIdentity,
 				WorkloadIdentity: &netv1alpha1.WorkloadIdentityAccess{
-					Server:      spokeServer,
-					CASecretRef: &netv1alpha1.SecretKeyRef{Name: "spoke-ca", Key: "ca.crt"},
+					Server:      secondaryServer,
+					CASecretRef: &netv1alpha1.SecretKeyRef{Name: "secondary-ca", Key: keyCACert},
 				},
 			})
 			Expect(k8sClient.Create(ctx, rc)).To(Succeed())
@@ -211,7 +212,7 @@ var _ = Describe("RemoteCluster CRD validation", func() {
 			rc := newRemoteCluster(netv1alpha1.ClusterAccess{
 				Type: netv1alpha1.AccessTypeWorkloadIdentity,
 				WorkloadIdentity: &netv1alpha1.WorkloadIdentityAccess{
-					Server:                    spokeServer,
+					Server:                    secondaryServer,
 					ServiceAccountEmail:       "hub@my-project.iam.gserviceaccount.com",
 					ImpersonateServiceAccount: "reader@my-project.iam.gserviceaccount.com",
 				},
@@ -226,7 +227,7 @@ var _ = Describe("RemoteCluster CRD validation", func() {
 			rc := newRemoteCluster(netv1alpha1.ClusterAccess{
 				Type: netv1alpha1.AccessTypeWorkloadIdentity,
 				WorkloadIdentity: &netv1alpha1.WorkloadIdentityAccess{
-					Server: spokeServer,
+					Server: secondaryServer,
 				},
 			})
 			Expect(k8sClient.Create(ctx, rc)).To(Succeed())
@@ -241,10 +242,10 @@ var _ = Describe("RemoteCluster CRD validation", func() {
 			rc := newRemoteCluster(netv1alpha1.ClusterAccess{
 				Type: netv1alpha1.AccessTypeGoogleToken,
 				GoogleToken: &netv1alpha1.GoogleTokenAccess{
-					Server: spokeServer,
+					Server: secondaryServer,
 				},
 				WorkloadIdentity: &netv1alpha1.WorkloadIdentityAccess{
-					Server: spokeServer,
+					Server: secondaryServer,
 				},
 			})
 			err := k8sClient.Create(ctx, rc)
@@ -259,7 +260,7 @@ var _ = Describe("RemoteCluster CRD validation", func() {
 				Type: netv1alpha1.AccessTypeEKS,
 				EKS: &netv1alpha1.EKSAccess{
 					Region:  "us-east-1",
-					Cluster: "spoke-eks",
+					Cluster: "secondary-eks",
 					Credentials: &netv1alpha1.AWSCredentials{
 						AssumeRoleARN: "arn:aws:iam::123456789012:role/crossservice-reader",
 					},
@@ -268,13 +269,64 @@ var _ = Describe("RemoteCluster CRD validation", func() {
 			Expect(k8sClient.Create(ctx, rc)).To(Succeed())
 		})
 
-		It("accepts AKS, which the controller reports as not implemented", func() {
+		It("accepts AKS with an explicit server and Entra credentials", func() {
 			rc := newRemoteCluster(netv1alpha1.ClusterAccess{
 				Type: netv1alpha1.AccessTypeAKS,
 				AKS: &netv1alpha1.AKSAccess{
+					Server:         "https://aks-abc123.hcp.eastus.azmk8s.io:443",
+					CASecretRef:    &netv1alpha1.SecretKeyRef{Name: "aks-ca", Key: keyCACert},
 					SubscriptionID: "00000000-0000-0000-0000-000000000000",
-					ResourceGroup:  "spokes",
-					Cluster:        "spoke-aks",
+					ResourceGroup:  "secondaries",
+					Cluster:        "secondary-aks",
+					Credentials: &netv1alpha1.AzureCredentials{
+						ClientID:        "11111111-1111-1111-1111-111111111111",
+						TenantID:        "22222222-2222-2222-2222-222222222222",
+						ClientSecretRef: &netv1alpha1.SecretKeyRef{Name: "aks-client-secret"},
+					},
+				},
+			})
+			Expect(k8sClient.Create(ctx, rc)).To(Succeed())
+		})
+
+		It("rejects AKS with no server, which no discovery can supply yet", func() {
+			rc := newRemoteCluster(netv1alpha1.ClusterAccess{
+				Type: netv1alpha1.AccessTypeAKS,
+				AKS:  &netv1alpha1.AKSAccess{Cluster: "secondary-aks"},
+			})
+			Expect(k8sClient.Create(ctx, rc)).To(HaveOccurred())
+		})
+
+		It("requires clientID and tenantID alongside an Entra client secret", func() {
+			rc := newRemoteCluster(netv1alpha1.ClusterAccess{
+				Type: netv1alpha1.AccessTypeAKS,
+				AKS: &netv1alpha1.AKSAccess{
+					Server: "https://aks-abc123.hcp.eastus.azmk8s.io:443",
+					Credentials: &netv1alpha1.AzureCredentials{
+						ClientSecretRef: &netv1alpha1.SecretKeyRef{Name: "aks-client-secret"},
+					},
+				},
+			})
+			err := k8sClient.Create(ctx, rc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("clientID and tenantID are required"))
+		})
+
+		It("accepts ClientCertificate, the cloud-agnostic phase 2 path", func() {
+			rc := newRemoteCluster(netv1alpha1.ClusterAccess{
+				Type: netv1alpha1.AccessTypeClientCertificate,
+				ClientCertificate: &netv1alpha1.ClientCertAccess{
+					Server:     secondaryServer,
+					SecretName: "client-keypair",
+				},
+			})
+			Expect(k8sClient.Create(ctx, rc)).To(Succeed())
+		})
+
+		It("accepts GKE, which discovers its endpoint and CA", func() {
+			rc := newRemoteCluster(netv1alpha1.ClusterAccess{
+				Type: netv1alpha1.AccessTypeGKE,
+				GKE: &netv1alpha1.GKEAccess{
+					Project: "my-project", Location: "us-central1", Cluster: "secondary-gke",
 				},
 			})
 			Expect(k8sClient.Create(ctx, rc)).To(Succeed())

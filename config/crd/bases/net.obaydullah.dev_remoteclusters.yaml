@@ -62,24 +62,52 @@ spec:
                 properties:
                   aks:
                     description: |-
-                      AKSAccess discovers an AKS endpoint via ARM and authenticates with an Entra
-                      ID token. Not yet implemented; the shape is reserved as for EKSAccess.
+                      AKSAccess authenticates to an AKS apiserver with an Entra ID token.
+
+                      Server and CA are explicit for the same reason they are on GoogleTokenAccess:
+                      it removes any dependency on Azure Resource Manager, so the controller needs
+                      no ARM role assignment and no management.azure.com reachability just to
+                      connect. The subscription and resource group are recorded for discovery,
+                      which is not yet implemented.
                     properties:
+                      caSecretRef:
+                        description: |-
+                          CASecretRef holds the cluster CA. Falls back to access.tls.caSecretRef.
+                          Default key: ca.crt.
+                        properties:
+                          key:
+                            description: Key within the Secret. Defaults are per-field
+                              and documented on each use.
+                            maxLength: 253
+                            type: string
+                          name:
+                            description: Name of the Secret.
+                            maxLength: 253
+                            type: string
+                        required:
+                        - name
+                        type: object
                       cluster:
+                        description: Cluster name. Recorded for ARM discovery.
                         maxLength: 63
                         type: string
                       credentials:
                         description: |-
-                          AzureCredentials selects how Entra ID credentials are obtained. Nil means the
-                          ambient chain, which on AKS resolves through Entra Workload Identity or a
-                          managed identity.
+                          AzureCredentials selects how Entra ID credentials are obtained.
+
+                          A client secret is the only form implemented. Managed identity and Entra
+                          Workload Identity resolve ambiently and are the better production answer, but
+                          they need the Azure identity SDK; a client secret needs nothing beyond an
+                          OAuth2 client-credentials exchange.
                         properties:
                           clientID:
+                            description: ClientID of the app registration.
                             maxLength: 64
                             type: string
                           clientSecretRef:
-                            description: ClientSecretRef holds a client secret for
-                              an app registration.
+                            description: |-
+                              ClientSecretRef holds the client secret of an app registration.
+                              Default key: clientSecret.
                             properties:
                               key:
                                 description: Key within the Secret. Defaults are per-field
@@ -93,20 +121,40 @@ spec:
                             required:
                             - name
                             type: object
+                          serverApplicationID:
+                            description: |-
+                              ServerApplicationID is the audience the apiserver expects. Defaults to
+                              the well-known AKS Entra server application.
+                            maxLength: 64
+                            type: string
                           tenantID:
+                            description: TenantID the app registration belongs to.
                             maxLength: 64
                             type: string
                         type: object
+                        x-kubernetes-validations:
+                        - message: clientID and tenantID are required alongside clientSecretRef
+                          rule: 'has(self.clientSecretRef) ? (has(self.clientID) &&
+                            has(self.tenantID)) : true'
                       resourceGroup:
+                        description: ResourceGroup the cluster lives in. Recorded
+                          for ARM discovery.
                         maxLength: 90
                         type: string
+                      server:
+                        description: |-
+                          Server is the apiserver URL. Take it from `az aks show --query fqdn`, or
+                          --query privateFqdn for a private cluster.
+                        maxLength: 2048
+                        pattern: ^https://
+                        type: string
                       subscriptionID:
+                        description: SubscriptionID the cluster lives in. Recorded
+                          for ARM discovery.
                         maxLength: 64
                         type: string
                     required:
-                    - cluster
-                    - resourceGroup
-                    - subscriptionID
+                    - server
                     type: object
                   burst:
                     default: 30

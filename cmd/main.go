@@ -107,11 +107,15 @@ func main() {
 	flag.Parse()
 
 	if credentialsNamespace == "" {
-		// Default to the controller's own namespace. Credentials are never read
-		// from anywhere else.
+		// Default to the controller's own namespace, which the Deployment
+		// supplies through the downward API. Credentials are never read from
+		// anywhere else, so guessing wrong here fails every Secret read with a
+		// confusing NotFound -- refuse to start instead.
 		credentialsNamespace = os.Getenv("POD_NAMESPACE")
 		if credentialsNamespace == "" {
-			credentialsNamespace = "system"
+			setupLog.Error(nil, "cannot determine the credentials namespace: "+
+				"set --credentials-namespace, or run with POD_NAMESPACE from the downward API")
+			os.Exit(1)
 		}
 	}
 

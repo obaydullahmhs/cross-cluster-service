@@ -585,38 +585,71 @@ type AWSCredentials struct {
 	AssumeRoleARN string `json:"assumeRoleARN,omitempty"`
 }
 
-// AKSAccess discovers an AKS endpoint via ARM and authenticates with an Entra
-// ID token. Not yet implemented; the shape is reserved as for EKSAccess.
+// AKSAccess authenticates to an AKS apiserver with an Entra ID token.
+//
+// Server and CA are explicit for the same reason they are on GoogleTokenAccess:
+// it removes any dependency on Azure Resource Manager, so the controller needs
+// no ARM role assignment and no management.azure.com reachability just to
+// connect. The subscription and resource group are recorded for discovery,
+// which is not yet implemented.
 type AKSAccess struct {
+	// Server is the apiserver URL. Take it from `az aks show --query fqdn`, or
+	// --query privateFqdn for a private cluster.
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^https://`
+	// +kubebuilder:validation:MaxLength=2048
+	Server string `json:"server"`
+
+	// CASecretRef holds the cluster CA. Falls back to access.tls.caSecretRef.
+	// Default key: ca.crt.
+	// +optional
+	CASecretRef *SecretKeyRef `json:"caSecretRef,omitempty"`
+
+	// SubscriptionID the cluster lives in. Recorded for ARM discovery.
+	// +optional
 	// +kubebuilder:validation:MaxLength=64
-	SubscriptionID string `json:"subscriptionID"`
+	SubscriptionID string `json:"subscriptionID,omitempty"`
 
-	// +kubebuilder:validation:Required
+	// ResourceGroup the cluster lives in. Recorded for ARM discovery.
+	// +optional
 	// +kubebuilder:validation:MaxLength=90
-	ResourceGroup string `json:"resourceGroup"`
+	ResourceGroup string `json:"resourceGroup,omitempty"`
 
-	// +kubebuilder:validation:Required
+	// Cluster name. Recorded for ARM discovery.
+	// +optional
 	// +kubebuilder:validation:MaxLength=63
-	Cluster string `json:"cluster"`
+	Cluster string `json:"cluster,omitempty"`
 
 	// +optional
 	Credentials *AzureCredentials `json:"credentials,omitempty"`
 }
 
-// AzureCredentials selects how Entra ID credentials are obtained. Nil means the
-// ambient chain, which on AKS resolves through Entra Workload Identity or a
-// managed identity.
+// AzureCredentials selects how Entra ID credentials are obtained.
+//
+// A client secret is the only form implemented. Managed identity and Entra
+// Workload Identity resolve ambiently and are the better production answer, but
+// they need the Azure identity SDK; a client secret needs nothing beyond an
+// OAuth2 client-credentials exchange.
+// +kubebuilder:validation:XValidation:rule="has(self.clientSecretRef) ? (has(self.clientID) && has(self.tenantID)) : true",message="clientID and tenantID are required alongside clientSecretRef"
 type AzureCredentials struct {
-	// ClientSecretRef holds a client secret for an app registration.
+	// ClientSecretRef holds the client secret of an app registration.
+	// Default key: clientSecret.
 	// +optional
 	ClientSecretRef *SecretKeyRef `json:"clientSecretRef,omitempty"`
 
+	// ClientID of the app registration.
 	// +optional
 	// +kubebuilder:validation:MaxLength=64
 	ClientID string `json:"clientID,omitempty"`
 
+	// TenantID the app registration belongs to.
 	// +optional
 	// +kubebuilder:validation:MaxLength=64
 	TenantID string `json:"tenantID,omitempty"`
+
+	// ServerApplicationID is the audience the apiserver expects. Defaults to
+	// the well-known AKS Entra server application.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	ServerApplicationID string `json:"serverApplicationID,omitempty"`
 }

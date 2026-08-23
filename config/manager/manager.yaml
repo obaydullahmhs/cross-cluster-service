@@ -65,6 +65,15 @@ spec:
           - --health-probe-bind-address=:8081
         image: controller:latest
         name: manager
+        env:
+          # Credentials are read from exactly one namespace, and it defaults to
+          # the controller's own. Without this the controller would look in a
+          # namespace literally called "system" and every Secret read would
+          # fail with a confusing NotFound.
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
         ports:
         - containerPort: 8081
           name: health

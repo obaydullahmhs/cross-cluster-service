@@ -174,7 +174,7 @@ var _ = Describe("CrossService CRD validation", func() {
 			xsvc := newCrossService()
 			xsvc.Spec.Source = netv1alpha1.Source{
 				Type:       netv1alpha1.SourceTypeDNS,
-				ClusterRef: &netv1alpha1.ClusterRef{Name: "spoke"},
+				ClusterRef: &netv1alpha1.ClusterRef{Name: "secondary"},
 				DNS:        &netv1alpha1.DNSSource{Names: []string{"db.example.com."}},
 			}
 			err := k8sClient.Create(ctx, xsvc)
@@ -186,7 +186,7 @@ var _ = Describe("CrossService CRD validation", func() {
 			xsvc := newCrossService()
 			xsvc.Spec.Source = netv1alpha1.Source{
 				Type:       netv1alpha1.SourceTypeNodes,
-				ClusterRef: &netv1alpha1.ClusterRef{Name: "spoke"},
+				ClusterRef: &netv1alpha1.ClusterRef{Name: "secondary"},
 				Nodes: &netv1alpha1.NodeSource{
 					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{nodePoolLabel: nodePoolEdge}},
 				},
@@ -235,7 +235,7 @@ var _ = Describe("CrossService CRD validation", func() {
 			xsvc.Spec.Ports = []netv1alpha1.CrossServicePort{{Name: portNameHTTP, Port: 80}}
 			xsvc.Spec.Source = netv1alpha1.Source{
 				Type:       netv1alpha1.SourceTypeService,
-				ClusterRef: &netv1alpha1.ClusterRef{Name: "spoke-a"},
+				ClusterRef: &netv1alpha1.ClusterRef{Name: "secondary-a"},
 				Service: &netv1alpha1.ServiceSource{
 					Namespace: remoteNamespace,
 					Name:      remoteSvcName,
