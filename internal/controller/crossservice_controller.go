@@ -121,11 +121,16 @@ func (r *CrossServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		r.warn(&xsvc, reason, err.Error())
 		return ctrl.Result{}, r.writeStatus(ctx, &xsvc, status)
 	}
+	result, resolveErr := r.Resolver.Resolve(ctx, src, xsvc.Spec.Ports)
+
+	// Acquired after resolving, not before: the cached client is created lazily
+	// by the resolver's first Get, so acquiring earlier would register against
+	// an entry that does not exist yet and silently do nothing -- leaving
+	// consumerCount at zero and letting a later Release tear down a client
+	// another CrossService is still using.
 	if r.Clusters != nil && src.ClusterRef != nil {
 		r.Clusters.Acquire(src.ClusterRef.Name, req.NamespacedName)
 	}
-
-	result, resolveErr := r.Resolver.Resolve(ctx, src, xsvc.Spec.Ports)
 
 	var fresh []resolver.Endpoint
 	var ttl time.Duration

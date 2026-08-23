@@ -179,9 +179,21 @@ forever. The controller appends it if you forget, but write it anyway.
 
 ---
 
-## 6. A second cluster
+## 6. Rehearse the remote path without a second cluster
 
-Do this only after steps 3-5 pass.
+Before wiring up real credentials and firewall rules, point a `RemoteCluster` at
+the cluster you are already in. It drives the entire remote code path -- grant
+checks, the credential builder, the client cache, separate informers -- with
+nothing to configure. If that works and a real secondary cluster does not, the
+problem is networking, not the controller.
+
+See [testing-incluster.md](testing-incluster.md).
+
+---
+
+## 7. A second cluster
+
+Do this only after steps 3-6 pass.
 
 ### On the cluster being read from
 
