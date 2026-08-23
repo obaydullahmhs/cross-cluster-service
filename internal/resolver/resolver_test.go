@@ -94,7 +94,7 @@ func mustAddrs(t *testing.T, in ...string) []netip.Addr {
 
 func TestDNSResolveQueriesFullyQualifiedNames(t *testing.T) {
 	fake := &fakeLookup{addrs: map[string][]netip.Addr{
-		fqdnDB: mustAddrs(t, "10.0.0.1", "10.0.0.2"),
+		fqdnDB: mustAddrs(t, addrA, "10.0.0.2"),
 	}}
 	d := &DNS{Client: fake}
 
@@ -225,7 +225,7 @@ func TestStaticResolveRejectsMalformedAddresses(t *testing.T) {
 	s := &Static{}
 	src := &netv1alpha1.Source{
 		Type:   netv1alpha1.SourceTypeStatic,
-		Static: &netv1alpha1.StaticSource{Addresses: []string{"10.0.0.1", "not-an-ip"}},
+		Static: &netv1alpha1.StaticSource{Addresses: []string{addrA, "not-an-ip"}},
 	}
 	if _, err := s.Resolve(context.Background(), src, nil); err == nil {
 		t.Fatal("expected an error for a malformed static address")
@@ -237,7 +237,7 @@ func TestStaticResolveMarksEndpointsReady(t *testing.T) {
 	src := &netv1alpha1.Source{
 		Type: netv1alpha1.SourceTypeStatic,
 		Static: &netv1alpha1.StaticSource{
-			Addresses: []string{"10.0.0.1"},
+			Addresses: []string{addrA},
 			Zone:      "us-central1-a",
 		},
 	}

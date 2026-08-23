@@ -225,9 +225,9 @@ var _ = Describe("CrossService reconcile", func() {
 		})
 
 		It("matches named ports between the Service and the slice", func() {
-			fake.set([]resolver.Endpoint{mkEndpoint("10.0.0.1", map[string]int32{"http": 8080, "grpc": 9090})}, nil)
+			fake.set([]resolver.Endpoint{mkEndpoint("10.0.0.1", map[string]int32{portHTTP: 8080, "grpc": 9090})}, nil)
 			xsvc.Spec.Ports = []netv1alpha1.CrossServicePort{
-				{Name: "http", Port: 80, TargetPort: intstrPtr(8080)},
+				{Name: portHTTP, Port: 80, TargetPort: intstrPtr(8080)},
 				{Name: "grpc", Port: 9000, TargetPort: intstrPtr(9090)},
 			}
 			Expect(k8sClient.Create(ctx, xsvc)).To(Succeed())

@@ -62,6 +62,11 @@ type Result struct {
 	// TTL is a requeue hint from the source. Zero means use the configured
 	// interval.
 	TTL time.Duration
+
+	// Warnings describe backends that were skipped. They surface as Events and
+	// in status: a dropped backend is a reporting matter, not an error, because
+	// one unusable Pod must not fail an otherwise healthy source.
+	Warnings []string
 }
 
 // Resolver turns one Source into endpoints.

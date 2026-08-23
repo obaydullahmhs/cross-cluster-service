@@ -14,25 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package resolver
-
-// Literals shared across this package's tests.
-const (
-	fqdnDB = "db.example.com."
-)
+package controller
 
 const (
-	nsDefault = "default"
-	portHTTP  = "http"
-	zoneA     = "us-central1-a"
+	labelApp   = "app"
+	portHTTP   = "http"
+	nsPayments = "payments"
+	svcAPI     = "api"
+	keyNodes   = "nodes|"
+	keySvcAPI  = "service|payments/api"
 )
-
-const (
-	appWeb   = "web"
-	nodeA    = "node-a"
-	labelApp = "app"
-	svcAPI   = "api"
-	addrLB   = "35.1.1.1"
-)
-
-const addrA = "10.0.0.1"

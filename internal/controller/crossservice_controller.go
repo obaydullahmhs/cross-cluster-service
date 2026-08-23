@@ -65,6 +65,8 @@ type CrossServiceReconciler struct {
 // +kubebuilder:rbac:groups=net.obaydullah.dev,resources=crossservices/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile implements the algorithm in the project brief: validate, resolve,
@@ -101,6 +103,13 @@ func (r *CrossServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if resolveErr == nil {
 		fresh = endpoints.Dedupe(result.Endpoints)
 		ttl = result.TTL
+
+		// A backend that could not be used is reported, never fatal: one Pod
+		// whose named port does not resolve must not fail the whole source (I4).
+		for _, w := range result.Warnings {
+			logger.Info("backend skipped", "reason", w)
+			r.event(&xsvc, corev1.EventTypeWarning, netv1alpha1.ReasonNoEndpointsFound, w)
+		}
 	}
 
 	policy, err := endpoints.NewPolicy(r.DefaultAddressPolicy)
@@ -156,7 +165,10 @@ func (r *CrossServiceReconciler) requeueAfter(src *netv1alpha1.Source, ttl time.
 	if src.Type == netv1alpha1.SourceTypeDNS && src.DNS != nil {
 		return resolver.RequeueAfter(src.DNS, ttl)
 	}
-	return 0
+	// A Service source normally needs no timer, but a LoadBalancer whose
+	// provider returns a hostname has to be re-resolved, and says so by
+	// returning a TTL.
+	return ttl
 }
 
 func (r *CrossServiceReconciler) reconcileService(
@@ -325,10 +337,12 @@ func (r *CrossServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Now == nil {
 		r.Now = time.Now
 	}
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&netv1alpha1.CrossService{}).
 		Owns(&corev1.Service{}).
-		Owns(&discoveryv1.EndpointSlice{}).
+		Owns(&discoveryv1.EndpointSlice{})
+
+	return r.watchLocalSources(b).
 		Named("crossservice").
 		Complete(r)
 }

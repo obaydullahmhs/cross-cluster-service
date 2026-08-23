@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"os"
@@ -36,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	netv1alpha1 "github.com/obaydullahmhs/cross-cluster-service/api/v1alpha1"
+	"github.com/obaydullahmhs/cross-cluster-service/internal/clusters"
 	"github.com/obaydullahmhs/cross-cluster-service/internal/controller"
 	"github.com/obaydullahmhs/cross-cluster-service/internal/endpoints"
 	"github.com/obaydullahmhs/cross-cluster-service/internal/resolver"
@@ -201,13 +203,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := controller.SetupIndexes(context.Background(), mgr); err != nil {
+		setupLog.Error(err, "unable to set up field indexes")
+		os.Exit(1)
+	}
+
+	localClusters := &clusters.LocalProvider{Client: mgr.GetClient()}
+
 	if err := (&controller.CrossServiceReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("crossservice"),
 		Resolver: resolver.NewRegistry(map[netv1alpha1.SourceType]resolver.Resolver{
-			netv1alpha1.SourceTypeStatic: &resolver.Static{},
-			netv1alpha1.SourceTypeDNS:    &resolver.DNS{},
+			netv1alpha1.SourceTypeStatic:  &resolver.Static{},
+			netv1alpha1.SourceTypeDNS:     &resolver.DNS{},
+			netv1alpha1.SourceTypePods:    &resolver.Pods{Provider: localClusters},
+			netv1alpha1.SourceTypeNodes:   &resolver.Nodes{Provider: localClusters},
+			netv1alpha1.SourceTypeService: &resolver.Service{Provider: localClusters},
 		}),
 		MaxEndpointsPerSlice: maxEndpointsPerSlice,
 	}).SetupWithManager(mgr); err != nil {
