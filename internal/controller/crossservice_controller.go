@@ -457,7 +457,10 @@ func (r *CrossServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Service{}).
 		Owns(&discoveryv1.EndpointSlice{})
 
-	b = r.watchLocalSources(b)
+	b = r.watchLocalSources(b).
+		// A RemoteCluster changing is what rebuilds its informers after a
+		// credential rotation; see mapRemoteCluster.
+		Watches(&netv1alpha1.RemoteCluster{}, handler.EnqueueRequestsFromMapFunc(r.mapRemoteCluster))
 
 	// Secondary clusters' informers live outside the manager's cache, so their
 	// events arrive on a channel rather than through Watches().

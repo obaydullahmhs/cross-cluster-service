@@ -181,6 +181,34 @@ func (r *CrossServiceReconciler) watchLocalSources(b *builder.Builder) *builder.
 		Watches(&discoveryv1.EndpointSlice{}, handler.EnqueueRequestsFromMapFunc(r.mapEndpointSlice))
 }
 
+// mapRemoteCluster enqueues every CrossService bound to a RemoteCluster.
+//
+// This is what re-establishes a secondary cluster's informers after its
+// credentials change. The client cache tears the old connection down the
+// moment the fingerprint moves, and rebuilds it lazily on the next read --
+// but for a remote source that read only happens during a reconcile, and
+// reconciles are driven by events from the very informers that just went
+// away. Without an outside nudge the two wait for each other: the cluster
+// reports Ready, because probing it uses a standalone config, while nothing
+// is watching it and the endpoints quietly rot.
+//
+// It also means a cluster going unreachable or coming back is reflected on
+// the CrossServices that depend on it, rather than only on the RemoteCluster.
+func (r *CrossServiceReconciler) mapRemoteCluster(ctx context.Context, o client.Object) []reconcile.Request {
+	var list netv1alpha1.CrossServiceList
+	if err := r.List(ctx, &list, client.MatchingFields{ClusterRefIndex: o.GetName()}); err != nil {
+		return nil
+	}
+	out := make([]reconcile.Request, 0, len(list.Items))
+	for i := range list.Items {
+		out = append(out, reconcile.Request{NamespacedName: types.NamespacedName{
+			Namespace: list.Items[i].Namespace,
+			Name:      list.Items[i].Name,
+		}})
+	}
+	return out
+}
+
 // RemoteEvent carries one change from a secondary cluster's informer.
 //
 // It exists because a remote object cannot say which apiserver produced it, and
