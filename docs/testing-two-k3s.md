@@ -541,6 +541,36 @@ docker start xcs-beta
 
 Recovery took roughly 80 seconds in the reference run, unattended.
 
+### Credential rotation
+
+Worth testing deliberately, because it is routine in production and it used to break
+silently:
+
+```bash
+$A -n cross-cluster-service-system delete secret beta-creds
+# ...recreate it exactly as in step 6, then:
+$A get remotecluster beta -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}{"\n"}'
+```
+
+The cluster returns to `Ready` within a second or two, with no controller restart — the client
+cache is keyed by the credential fingerprint, so rewriting the Secret rebuilds the connection.
+
+Then check the part that actually matters, which the conditions do not tell you: that the
+cluster is still being *watched*. Change something in beta and confirm it propagates without
+touching anything in alpha.
+
+```bash
+$B -n demo scale deploy/web --replicas=4
+$A -n demo get endpointslice -l kubernetes.io/service-name=beta-web-pods \
+  -o jsonpath='{.items[*].endpoints[*].addresses}{"\n"}'
+```
+
+This distinction is not academic. Until `ec6127f` the connection was torn down on rotation and
+rebuilt only on the next read -- and for a remote source that read happens during a reconcile,
+which is itself driven by the informers that had just gone away. Everything reported healthy
+while nothing was watching. `RemoteCluster` probes with a standalone config, so `Ready=True`
+has only ever meant "credentials work and the apiserver answers".
+
 ---
 
 ## 13. Keeping a copy of the token
