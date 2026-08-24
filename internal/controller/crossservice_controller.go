@@ -123,7 +123,8 @@ func (r *CrossServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// A source bound to a RemoteCluster has to clear the ops team's grant
 	// before anything reads from that cluster (9.2).
-	if _, err := r.resolveCluster(ctx, &xsvc); err != nil {
+	rc, err := r.resolveCluster(ctx, &xsvc)
+	if err != nil {
 		reason := reasonForClusterError(err)
 		r.setCondition(status, netv1alpha1.ConditionSourcesResolved, metav1.ConditionFalse, reason, err.Error())
 		r.setCondition(status, netv1alpha1.ConditionReady, metav1.ConditionFalse, reason, err.Error())
@@ -155,12 +156,10 @@ func (r *CrossServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	policy, err := endpoints.NewPolicy(r.DefaultAddressPolicy)
+	kept, rejected, err := r.filterAddresses(rc, fresh)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("compiling default address policy: %w", err)
+		return ctrl.Result{}, err
 	}
-
-	kept, rejected := policy.Filter(fresh)
 	if len(rejected) > 0 {
 		// Dropped addresses are reported, never fatal: one bad address must not
 		// take down an otherwise healthy source.
@@ -198,21 +197,92 @@ func (r *CrossServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{RequeueAfter: r.requeueAfter(src, ttl)}, nil
+	return ctrl.Result{RequeueAfter: r.requeueAfter(src, rc, ttl)}, nil
+}
+
+// filterAddresses applies the source cluster's own AddressPolicy, then the
+// controller-wide default.
+//
+// Both, in that order, because a RemoteCluster's policy is the operator's
+// statement about one cluster ("only these CIDRs are real backends over there")
+// and the default is the deployment-wide floor. Applying only the default would
+// leave the per-cluster field accepted by the apiserver and enforcing nothing,
+// which is a worse failure than not offering it: the operator believes a
+// restriction is in place.
+func (r *CrossServiceReconciler) filterAddresses(
+	rc *netv1alpha1.RemoteCluster,
+	in []resolver.Endpoint,
+) ([]resolver.Endpoint, []endpoints.Rejection, error) {
+	var rejected []endpoints.Rejection
+
+	if rc != nil && rc.Spec.AddressPolicy != nil {
+		clusterPolicy, err := endpoints.NewPolicy(rc.Spec.AddressPolicy)
+		if err != nil {
+			return nil, nil, fmt.Errorf("compiling address policy for cluster %s: %w", rc.Name, err)
+		}
+		var dropped []endpoints.Rejection
+		in, dropped = clusterPolicy.Filter(in)
+		rejected = append(rejected, dropped...)
+	}
+
+	defaultPolicy, err := endpoints.NewPolicy(r.DefaultAddressPolicy)
+	if err != nil {
+		return nil, nil, fmt.Errorf("compiling default address policy: %w", err)
+	}
+	kept, dropped := defaultPolicy.Filter(in)
+	return kept, append(rejected, dropped...), nil
 }
 
 // requeueAfter returns the poll interval. DNS is the only source that must
-// poll; everything else is driven by watches, so returning zero here is
-// correct rather than an oversight (I14).
-func (r *CrossServiceReconciler) requeueAfter(src *netv1alpha1.Source, ttl time.Duration) time.Duration {
-	if src.Type == netv1alpha1.SourceTypeDNS && src.DNS != nil {
-		return resolver.RequeueAfter(src.DNS, ttl)
+// poll; everything else is driven by watches (I14).
+//
+// A remote source additionally gets a floor, because its events cross two
+// pieces of machinery that can lose one: a watch against another cluster's
+// apiserver, and the buffered channel those events are funnelled through,
+// which drops rather than blocking an informer's delivery goroutine. Neither
+// loss is detectable from here -- a stale EndpointSlice reports Ready and
+// serves dead addresses -- so the reconcile is repeated on a timer that costs
+// nothing when nothing changed.
+//
+// A local source needs no floor: its events come from the manager's own cache
+// with no channel in between.
+func (r *CrossServiceReconciler) requeueAfter(
+	src *netv1alpha1.Source,
+	rc *netv1alpha1.RemoteCluster,
+	ttl time.Duration,
+) time.Duration {
+	var out time.Duration
+	switch {
+	case src.Type == netv1alpha1.SourceTypeDNS && src.DNS != nil:
+		out = resolver.RequeueAfter(src.DNS, ttl)
+	default:
+		// A Service source normally needs no timer, but a LoadBalancer whose
+		// provider returns a hostname has to be re-resolved, and says so by
+		// returning a TTL.
+		out = ttl
 	}
-	// A Service source normally needs no timer, but a LoadBalancer whose
-	// provider returns a hostname has to be re-resolved, and says so by
-	// returning a TTL.
-	return ttl
+
+	if floor := remoteResyncFloor(rc); floor > 0 && (out == 0 || out > floor) {
+		out = floor
+	}
+	return out
 }
+
+// remoteResyncFloor is the RemoteCluster's resyncPeriod, or zero for a local
+// source or a cluster that has explicitly disabled it.
+func remoteResyncFloor(rc *netv1alpha1.RemoteCluster) time.Duration {
+	if rc == nil {
+		return 0
+	}
+	if p := rc.Spec.Access.ResyncPeriod; p != nil {
+		return p.Duration
+	}
+	return defaultRemoteResync
+}
+
+// defaultRemoteResync matches the CRD default for a spec stored before the
+// field existed.
+const defaultRemoteResync = 10 * time.Minute
 
 func (r *CrossServiceReconciler) reconcileService(
 	ctx context.Context,

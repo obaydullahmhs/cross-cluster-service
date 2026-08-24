@@ -154,6 +154,14 @@ func (p *CachingProvider) start(name string, built *auth.Result) (*entry, error)
 	cl, err := cluster.New(built.Config, func(o *cluster.Options) {
 		o.Scheme = p.Scheme
 		o.Cache.DefaultWatchErrorHandler = remoteWatchErrorHandler(name)
+		// Replays the cache through the event handlers on an interval. This is
+		// what recovers an event dropped between the informer and the
+		// controller -- the informer's own cache is correct in that case, so a
+		// replay is enough. It cannot recover an event the watch itself missed;
+		// client-go's relist-on-timeout covers that.
+		if built.ResyncPeriod > 0 {
+			o.Cache.SyncPeriod = &built.ResyncPeriod
+		}
 	})
 	if err != nil {
 		return nil, fmt.Errorf("building client for cluster %s: %w", name, err)

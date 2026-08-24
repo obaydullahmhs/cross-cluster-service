@@ -23,6 +23,8 @@ limitations under the License.
 package auth
 
 import (
+	"time"
+
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -74,6 +76,10 @@ type ErrNotPermitted struct{ Reason string }
 
 func (e *ErrNotPermitted) Error() string { return e.Reason }
 
+// defaultResyncPeriod matches the CRD default, so a spec stored before the
+// field existed gets the backstop rather than silently going without it.
+const defaultResyncPeriod = 10 * time.Minute
+
 // Result is a built connection.
 type Result struct {
 	Config *rest.Config
@@ -81,6 +87,11 @@ type Result struct {
 	// Fingerprint identifies the credentials that produced Config. It changes
 	// when any of them change, which is what lets the cache detect a rotation.
 	Fingerprint string
+
+	// ResyncPeriod is the interval this cluster's informers replay their cache
+	// on. Zero disables it. Carried here rather than re-read by the caller so
+	// the spec is consulted in exactly one place.
+	ResyncPeriod time.Duration
 }
 
 // Builder builds rest.Configs from RemoteCluster specs.
@@ -95,6 +106,11 @@ func (b *Builder) Build(ctx context.Context, rc *netv1alpha1.RemoteCluster) (*Re
 
 	if err := b.checkTLSPermitted(access); err != nil {
 		return nil, err
+	}
+
+	resync := defaultResyncPeriod
+	if access.ResyncPeriod != nil {
+		resync = access.ResyncPeriod.Duration
 	}
 
 	fp := newFingerprint()
@@ -133,7 +149,7 @@ func (b *Builder) Build(ctx context.Context, rc *netv1alpha1.RemoteCluster) (*Re
 		return nil, err
 	}
 
-	return &Result{Config: cfg, Fingerprint: fp.sum()}, nil
+	return &Result{Config: cfg, Fingerprint: fp.sum(), ResyncPeriod: resync}, nil
 }
 
 func (b *Builder) checkTLSPermitted(access *netv1alpha1.ClusterAccess) error {

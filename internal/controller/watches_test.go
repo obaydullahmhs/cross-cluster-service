@@ -289,3 +289,50 @@ func toAny(in []string) []any {
 	}
 	return out
 }
+
+var _ = Describe("requeue floor", func() {
+	r := &CrossServiceReconciler{}
+	podsSrc := &netv1alpha1.Source{Type: netv1alpha1.SourceTypePods}
+	withResync := func(d string) *netv1alpha1.RemoteCluster {
+		p, err := time.ParseDuration(d)
+		Expect(err).NotTo(HaveOccurred())
+		return &netv1alpha1.RemoteCluster{Spec: netv1alpha1.RemoteClusterSpec{
+			Access: netv1alpha1.ClusterAccess{ResyncPeriod: &metav1.Duration{Duration: p}},
+		}}
+	}
+
+	// A local source's events come from the manager's own cache with no channel
+	// in between, so a timer would be pure waste.
+	It("leaves a local watch-driven source on watches alone", func() {
+		Expect(r.requeueAfter(podsSrc, nil, 0)).To(BeZero())
+	})
+
+	// A remote source's events cross a watch against another apiserver and a
+	// channel that drops rather than blocking. Neither loss is visible from
+	// here: the slice keeps reporting Ready while serving dead addresses.
+	It("floors a remote source so a lost event cannot strand it", func() {
+		Expect(r.requeueAfter(podsSrc, withResync("10m"), 0)).To(Equal(10 * time.Minute))
+	})
+
+	It("honours a shorter resyncPeriod", func() {
+		Expect(r.requeueAfter(podsSrc, withResync("1m"), 0)).To(Equal(time.Minute))
+	})
+
+	// Explicitly disabling the backstop is a choice the API offers, and must
+	// not be quietly overridden.
+	It("respects resyncPeriod 0s as a deliberate opt-out", func() {
+		Expect(r.requeueAfter(podsSrc, withResync("0s"), 0)).To(BeZero())
+	})
+
+	// The floor is a ceiling on the interval, never a delay added to a source
+	// that already polls faster.
+	It("never slows down a source that already polls sooner", func() {
+		dnsSrc := &netv1alpha1.Source{
+			Type: netv1alpha1.SourceTypeDNS,
+			DNS: &netv1alpha1.DNSSource{
+				DNSResolution: netv1alpha1.DNSResolution{Interval: &metav1.Duration{Duration: 30 * time.Second}},
+			},
+		}
+		Expect(r.requeueAfter(dnsSrc, withResync("10m"), 0)).To(Equal(30 * time.Second))
+	})
+})
