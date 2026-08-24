@@ -196,6 +196,10 @@ To try it end to end on your laptop, **[docs/testing-two-k3s.md](docs/testing-tw
 builds two real clusters in Docker and exercises every source type. Every command
 in it has been run, with output quoted inline.
 
+If `via: PodIP` is what you want but Pod IPs are not routable between your
+clusters, **[docs/pod-ip-connectivity.md](docs/pod-ip-connectivity.md)** covers
+establishing that with Submariner — and, first, how to tell whether you need it.
+
 ---
 
 ## Operating it
