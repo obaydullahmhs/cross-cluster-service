@@ -34,3 +34,6 @@ prompt.md
 
 # Local test reports, kept out of git
 test-reports/
+
+# Local working notes
+NEXT-STEPS.md
