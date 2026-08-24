@@ -31,3 +31,6 @@ go.work
 
 # Project brief, kept local
 prompt.md
+
+# Local test reports, kept out of git
+test-reports/
