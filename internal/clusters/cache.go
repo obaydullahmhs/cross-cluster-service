@@ -18,6 +18,7 @@ package clusters
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -29,7 +30,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
+	toolscache "k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	netv1alpha1 "github.com/obaydullahmhs/cross-cluster-service/api/v1alpha1"
 	"github.com/obaydullahmhs/cross-cluster-service/internal/clusters/auth"
@@ -122,10 +125,35 @@ func (p *CachingProvider) Get(ctx context.Context, name string) (Client, error) 
 	return &remoteClient{c: e.cluster, timeout: e.timeout}, nil
 }
 
+// remoteWatchErrorHandler downgrades a remote cluster's informer failures from
+// the default handler's ERROR-with-stack-trace to an INFO line naming the
+// cluster.
+//
+// A secondary cluster being unreachable is an expected, self-healing condition,
+// not a fault in this controller: the reflector retries, and the outage is
+// already reported where an operator should be looking for it -- the
+// RemoteCluster's Reachable condition. The default handler logs it as
+// UnhandledError, which is indistinguishable from a genuine controller bug and,
+// worse, does not say which of N secondary clusters went away. With "any number"
+// of secondaries that is the difference between an actionable line and a wall of
+// identical stack traces.
+func remoteWatchErrorHandler(name string) toolscache.WatchErrorHandlerWithContext {
+	return func(ctx context.Context, r *toolscache.Reflector, err error) {
+		if errors.Is(err, context.Canceled) {
+			// The cluster is being torn down -- credentials rotated, or the
+			// last consumer released it. Not worth a line at all.
+			return
+		}
+		logf.FromContext(ctx).Info("remote cluster watch failed; retrying",
+			"cluster", name, "reflector", r.Name(), "err", err.Error())
+	}
+}
+
 // start builds and runs a cluster's informers.
 func (p *CachingProvider) start(name string, built *auth.Result) (*entry, error) {
 	cl, err := cluster.New(built.Config, func(o *cluster.Options) {
 		o.Scheme = p.Scheme
+		o.Cache.DefaultWatchErrorHandler = remoteWatchErrorHandler(name)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("building client for cluster %s: %w", name, err)
