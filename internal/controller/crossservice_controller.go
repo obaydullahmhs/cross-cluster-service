@@ -30,7 +30,10 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	netv1alpha1 "github.com/obaydullahmhs/cross-cluster-service/api/v1alpha1"
 	"github.com/obaydullahmhs/cross-cluster-service/internal/clusters"
@@ -63,6 +66,12 @@ type CrossServiceReconciler struct {
 	// Clusters is the ref-counted remote client cache. Nil for a build with
 	// local sources only.
 	Clusters *clusters.CachingProvider
+
+	// RemoteEvents carries changes from secondary clusters' informers, which
+	// are outside the manager's cache and so cannot be wired with Watches().
+	// Nil for a build with local sources only; a remote source will then never
+	// see a backend change.
+	RemoteEvents <-chan event.TypedGenericEvent[client.Object]
 
 	// Now is injectable so the failure-policy state machine is testable without
 	// sleeping.
@@ -378,7 +387,18 @@ func (r *CrossServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Service{}).
 		Owns(&discoveryv1.EndpointSlice{})
 
-	return r.watchLocalSources(b).
+	b = r.watchLocalSources(b)
+
+	// Secondary clusters' informers live outside the manager's cache, so their
+	// events arrive on a channel rather than through Watches().
+	if r.RemoteEvents != nil {
+		b = b.WatchesRawSource(source.Channel(
+			r.RemoteEvents,
+			handler.EnqueueRequestsFromMapFunc(r.mapRemote),
+		))
+	}
+
+	return b.
 		Named("crossservice").
 		Complete(r)
 }

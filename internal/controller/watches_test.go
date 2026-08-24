@@ -33,6 +33,9 @@ import (
 
 var watchSeq int
 
+// clusterSecondaryA names a RemoteCluster in the index tests.
+const clusterSecondaryA = "secondary-a"
+
 // makePod creates a Pod and gives it the status a kubelet would, since envtest
 // runs no kubelet of its own.
 func makePod(name, ip string, labels map[string]string) *corev1.Pod {
@@ -230,15 +233,45 @@ var _ = Describe("source reference index", func() {
 				want: nil,
 			},
 			{
-				// A remote source is driven by that cluster's own informers,
-				// so indexing it against local events would be wrong.
-				name: "a remote source is not indexed locally",
+				// A remote source is driven by that cluster's own informers, but
+				// it must still be indexed -- under a cluster-scoped prefix --
+				// or a remote Pod event has nothing to enqueue and the local
+				// EndpointSlice keeps pointing at addresses that are gone.
+				name: "a remote source is indexed under its cluster",
 				src: netv1alpha1.Source{
 					Type:       netv1alpha1.SourceTypePods,
-					ClusterRef: &netv1alpha1.ClusterRef{Name: "secondary-a"},
+					ClusterRef: &netv1alpha1.ClusterRef{Name: clusterSecondaryA},
 					Pods:       &netv1alpha1.PodSource{Namespace: nsPayments},
 				},
-				want: nil,
+				want: []string{"remote|secondary-a|pods|payments"},
+			},
+			{
+				// The prefix is what stops a Pod event from one cluster
+				// enqueueing a CrossService watching the same namespace in
+				// another.
+				name: "the same namespace in another cluster is a different key",
+				src: netv1alpha1.Source{
+					Type:       netv1alpha1.SourceTypePods,
+					ClusterRef: &netv1alpha1.ClusterRef{Name: "secondary-b"},
+					Pods:       &netv1alpha1.PodSource{Namespace: nsPayments},
+				},
+				want: []string{"remote|secondary-b|pods|payments"},
+			},
+			{
+				// Every dependency of a multi-key source has to carry the
+				// prefix, not just the first.
+				name: "a remote NodePort source prefixes both of its keys",
+				src: netv1alpha1.Source{
+					Type:       netv1alpha1.SourceTypeService,
+					ClusterRef: &netv1alpha1.ClusterRef{Name: clusterSecondaryA},
+					Service: &netv1alpha1.ServiceSource{
+						Namespace: nsPayments, Name: svcAPI, Via: netv1alpha1.ServiceExposureNodePort,
+					},
+				},
+				want: []string{
+					"remote|secondary-a|" + keySvcAPI,
+					"remote|secondary-a|" + keyNodes,
+				},
 			},
 		}
 

@@ -34,6 +34,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -252,6 +253,16 @@ func main() {
 		},
 	}
 
+	// Secondary clusters' informers are not in the manager's cache, so their
+	// events reach the controller down this channel instead of through
+	// Watches(). Without it a remote Pod restart is never written through, and
+	// the local EndpointSlice keeps pointing at addresses that no longer exist
+	// -- with no timer to fall back on.
+	//
+	// Buffered because the sender is an informer's shared delivery goroutine:
+	// blocking it would stall every other watcher on that cluster.
+	remoteEvents := make(chan event.TypedGenericEvent[client.Object], 2048)
+
 	remoteClusters := clusters.NewCachingProvider(
 		signalCtx, authBuilder, mgr.GetScheme(),
 		func(ctx context.Context, name string) (*netv1alpha1.RemoteCluster, error) {
@@ -260,7 +271,7 @@ func main() {
 				return nil, err
 			}
 			return &rc, nil
-		}, nil)
+		}, controller.RemoteWatcher(remoteEvents))
 
 	// A source resolves against the local cluster or a named remote one; the
 	// resolvers do not care which.
@@ -278,6 +289,7 @@ func main() {
 			netv1alpha1.SourceTypeService: &resolver.Service{Provider: sourceProvider},
 		}),
 		Clusters:             remoteClusters,
+		RemoteEvents:         remoteEvents,
 		MaxEndpointsPerSlice: maxEndpointsPerSlice,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CrossService")
